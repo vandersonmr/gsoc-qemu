@@ -1,5 +1,7 @@
-         QEMU README
+         2019 GSOC QEMU
          ===========
+
+[![Build Status](https://travis-ci.org/vandersonmr/gsoc-qemu.svg?branch=master)](https://travis-ci.org/vandersonmr/gsoc-qemu)
 
 QEMU is a generic and open source machine & userspace emulator and
 virtualizer.
