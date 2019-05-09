@@ -1,5 +1,5 @@
-         2019 GSOC QEMU
-         ===========
+2019 - My GSOC QEMU Project
+===========
 
 [![Build Status](https://travis-ci.org/vandersonmr/gsoc-qemu.svg?branch=master)](https://travis-ci.org/vandersonmr/gsoc-qemu)
 
