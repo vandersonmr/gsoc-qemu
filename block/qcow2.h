@@ -74,6 +74,10 @@
 #define MIN_CLUSTER_BITS 9
 #define MAX_CLUSTER_BITS 21
 
+/* Defined in the qcow2 spec (compressed cluster descriptor) */
+#define QCOW2_COMPRESSED_SECTOR_SIZE 512U
+#define QCOW2_COMPRESSED_SECTOR_MASK (~(QCOW2_COMPRESSED_SECTOR_SIZE - 1))
+
 /* Must be at least 2 to cover COW */
 #define MIN_L2_CACHE_SIZE 2 /* cache entries */
 
@@ -266,7 +270,6 @@ typedef struct Qcow2BitmapHeaderExt {
 typedef struct BDRVQcow2State {
     int cluster_bits;
     int cluster_size;
-    int cluster_sectors;
     int l2_slice_size;
     int l2_bits;
     int l2_size;

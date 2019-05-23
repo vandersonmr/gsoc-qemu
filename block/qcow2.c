@@ -1259,7 +1259,6 @@ static int coroutine_fn qcow2_do_open(BlockDriverState *bs, QDict *options,
 
     s->cluster_bits = header.cluster_bits;
     s->cluster_size = 1 << s->cluster_bits;
-    s->cluster_sectors = 1 << (s->cluster_bits - BDRV_SECTOR_BITS);
 
     /* Initialise version 3 header fields */
     if (header.version == 2) {
@@ -4188,7 +4187,8 @@ qcow2_co_preadv_compressed(BlockDriverState *bs,
 
     coffset = file_cluster_offset & s->cluster_offset_mask;
     nb_csectors = ((file_cluster_offset >> s->csize_shift) & s->csize_mask) + 1;
-    csize = nb_csectors * 512 - (coffset & 511);
+    csize = nb_csectors * QCOW2_COMPRESSED_SECTOR_SIZE -
+        (coffset & ~QCOW2_COMPRESSED_SECTOR_MASK);
 
     buf = g_try_malloc(csize);
     if (!buf) {
