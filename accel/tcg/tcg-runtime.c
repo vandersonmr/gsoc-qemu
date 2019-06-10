@@ -167,3 +167,9 @@ void HELPER(exit_atomic)(CPUArchState *env)
 {
     cpu_loop_exit_atomic(ENV_GET_CPU(env), GETPC());
 }
+
+void HELPER(inc_exec_freq)(void *ptr)
+{
+  TranslationBlock* tb = (TranslationBlock*) ptr;
+  tb->exec_freq = tb->exec_freq + 1;
+}

@@ -1,15 +1,24 @@
 #ifndef GEN_ICOUNT_H
+
 #define GEN_ICOUNT_H
 
 #include "qemu/timer.h"
 
 /* Helpers for instruction counting code generation.  */
 
+static bool enable_freq_count = false;
+
 static TCGOp *icount_start_insn;
 
 static inline void gen_tb_start(TranslationBlock *tb)
 {
     TCGv_i32 count, imm;
+
+    if (enable_freq_count) {
+      TCGv_ptr tb_ptr = tcg_temp_new_ptr();
+      tcg_gen_trunc_i64_ptr(tb_ptr, tcg_const_i64((int64_t) tb));
+      gen_helper_inc_exec_freq(tb_ptr);
+    }
 
     tcg_ctx->exitreq_label = gen_new_label();
     if (tb_cflags(tb) & CF_USE_ICOUNT) {
