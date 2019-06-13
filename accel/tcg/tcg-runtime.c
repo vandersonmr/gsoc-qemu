@@ -170,6 +170,6 @@ void HELPER(exit_atomic)(CPUArchState *env)
 
 void HELPER(inc_exec_freq)(void *ptr)
 {
-  TranslationBlock* tb = (TranslationBlock*) ptr;
-  tb->exec_freq = tb->exec_freq + 1;
+    TranslationBlock* tb = (TranslationBlock*) ptr;
+    atomic_inc(&tb->exec_freq);
 }

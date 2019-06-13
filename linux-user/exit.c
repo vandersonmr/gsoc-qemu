@@ -28,6 +28,7 @@ extern void __gcov_dump(void);
 
 void preexit_cleanup(CPUArchState *env, int code)
 {
+        tb_dump_all_exec_freq();
 #ifdef TARGET_GPROF
         _mcleanup();
 #endif

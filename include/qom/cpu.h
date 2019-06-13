@@ -469,6 +469,8 @@ extern CPUTailQ cpus;
 
 extern __thread CPUState *current_cpu;
 
+uint64_t tb_get_and_reset_exec_freq(struct TranslationBlock*);
+
 static inline void cpu_tb_jmp_cache_clear(CPUState *cpu)
 {
     unsigned int i;
