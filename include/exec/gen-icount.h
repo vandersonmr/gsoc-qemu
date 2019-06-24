@@ -6,17 +6,19 @@
 /* Helpers for instruction counting code generation.  */
 
 static TCGOp *icount_start_insn;
-extern bool enable_freq_count;
+
+static inline void gen_tb_exec_count(TranslationBlock *tb)
+{
+	if (qemu_loglevel_mask(CPU_LOG_HOT_TBS)) {
+		TCGv_ptr tb_ptr = tcg_const_ptr(tb);
+		gen_helper_inc_exec_freq(tb_ptr);
+		tcg_temp_free_ptr(tb_ptr);
+	}
+}
 
 static inline void gen_tb_start(TranslationBlock *tb)
 {
     TCGv_i32 count, imm;
-
-    if (enable_freq_count) {
-        TCGv_ptr tb_ptr = tcg_temp_new_ptr();
-        tcg_gen_trunc_i64_ptr(tb_ptr, tcg_const_i64((int64_t) tb));
-        gen_helper_inc_exec_freq(tb_ptr);
-    }
 
     tcg_ctx->exitreq_label = gen_new_label();
     if (tb_cflags(tb) & CF_USE_ICOUNT) {
@@ -54,6 +56,7 @@ static inline void gen_tb_start(TranslationBlock *tb)
 
 static inline void gen_tb_end(TranslationBlock *tb, int num_insns)
 {
+
     if (tb_cflags(tb) & CF_USE_ICOUNT) {
         /* Update the num_insn immediate parameter now that we know
          * the actual insn count.  */

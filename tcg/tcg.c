@@ -4052,6 +4052,7 @@ int tcg_gen_code(TCGContext *s, TranslationBlock *tb)
 
     if (s->nb_indirects > 0) {
 #ifdef DEBUG_DISAS
+        printf("we are here %d\n", CPU_LOG_TB_OP_IND);
         if (unlikely(qemu_loglevel_mask(CPU_LOG_TB_OP_IND)
                      && qemu_log_in_addr_range(tb->pc))) {
             qemu_log_lock();

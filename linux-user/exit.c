@@ -26,12 +26,10 @@
 extern void __gcov_dump(void);
 #endif
 
-extern bool enable_freq_count;
-
 void preexit_cleanup(CPUArchState *env, int code)
 {
-    if (enable_freq_count) {
-        tb_dump_all_exec_freq();
+    if (qemu_loglevel_mask(CPU_LOG_HOT_TBS)) {
+        tb_dump_exec_freq(max_num_hot_tbs_to_dump);
     }
 #ifdef TARGET_GPROF
         _mcleanup();

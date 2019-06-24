@@ -28,14 +28,6 @@
 
 typedef struct TranslationBlock TranslationBlock;
 typedef struct TBContext TBContext;
-typedef struct TBStatistics TBStatistics;
-
-struct TBStatistics {
-    target_ulong pc;
-    target_ulong cs_base;
-    uint32_t flags;
-    uint64_t total_exec_freq;
-};
 
 struct TBContext {
 
@@ -43,7 +35,7 @@ struct TBContext {
 
     /* statistics */
     unsigned tb_flush_count;
-    struct qht tb_statistics;
+    GList *tb_statistics;
 };
 
 extern TBContext tb_ctx;

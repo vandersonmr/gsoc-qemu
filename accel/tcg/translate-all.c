@@ -1118,10 +1118,16 @@ static inline void code_gen_alloc(size_t tb_size)
     }
 }
 
-static bool statistics_cmp(const void* ap, const void *bp) {
-    const TBStatistics *a = ap;
-    const TBStatistics *b = bp;
-    return a->pc == b->pc && a->cs_base == b->cs_base && a->flags == b->flags;
+static gint statistics_cmp(gconstpointer p1, gconstpointer p2) 
+{
+    const TBStatistics *a = (TBStatistics *) p1;
+    const TBStatistics *b = (TBStatistics *) p2;
+
+    return (a->pc == b->pc && 
+		   a->cs_base == b->cs_base &&
+		   a->flags == b->flags && 
+	       a->page_addr[0] == b->page_addr[0] &&
+    	   a->page_addr[1] == b->page_addr[1]) ? 0 : 1; 
 }
 
 static bool tb_cmp(const void *ap, const void *bp)
@@ -1143,7 +1149,6 @@ static void tb_htable_init(void)
     unsigned int mode = QHT_MODE_AUTO_RESIZE;
 
     qht_init(&tb_ctx.htable, tb_cmp, CODE_GEN_HTABLE_SIZE, mode);
-    qht_init(&tb_ctx.tb_statistics, statistics_cmp, CODE_GEN_HTABLE_SIZE, QHT_MODE_AUTO_RESIZE);
 }
 
 /* Must be called before using the QEMU cpus. 'tb_size' is the size
@@ -1235,51 +1240,50 @@ static gboolean tb_host_size_iter(gpointer key, gpointer value, gpointer data)
     return false;
 }
 
-static void do_tb_dump_exec_freq(void *p, uint32_t hash, void *userp)
+static void tb_dump_statistics(TBStatistics *tbs)
 {
-#if TARGET_LONG_SIZE == 8
-    TBStatistics *tbs = p;
-    printf("%016lx\t%lu\n", tbs->pc, tbs->total_exec_freq);
-#elif TARGET_LONG_SIZE == 4
-    TBStatistics *tbs = p;
-    printf("%016x\t%lu\n", tbs->pc, tbs->total_exec_freq);
-#endif
+    uint32_t cflags = curr_cflags() | CF_NOCACHE;
+    int old_log_flags = qemu_loglevel;
+
+    qemu_set_log(CPU_LOG_TB_OP_OPT);
+
+    qemu_log("\n------------------------------\n");
+    qemu_log("Translation Block PC: \t0x"TARGET_FMT_lx "\n", tbs->pc);
+    qemu_log("Execution Count: \t%lu\n\n", (uint64_t) (tbs->exec_count + tbs->exec_count_overflows*0xFFFFFFFF));
+
+    mmap_lock();
+    TranslationBlock *tb = tb_gen_code(current_cpu, tbs->pc, tbs->cs_base, tbs->flags, cflags);
+    tb_phys_invalidate(tb, -1);
+    mmap_unlock();
+
+    qemu_set_log(old_log_flags);
+
+    tcg_tb_remove(tb);
 }
 
-void tb_dump_all_exec_freq(void)
+static gint inverse_sort_tbs(gconstpointer p1, gconstpointer p2) 
 {
-    tb_read_exec_freq();
-    qht_iter(&tb_ctx.tb_statistics, do_tb_dump_exec_freq, NULL);
+    const TBStatistics *tbs1 = (TBStatistics *) p1;
+    const TBStatistics *tbs2 = (TBStatistics *) p2;
+    uint64_t p1_count = (uint64_t) (tbs1->exec_count + tbs1->exec_count_overflows*0xFFFFFFFF);
+    uint64_t p2_count = (uint64_t) (tbs2->exec_count + tbs2->exec_count_overflows*0xFFFFFFFF);
+
+    return p1_count < p2_count ? 1 : p1_count == p2_count ? 0 : -1;
 }
 
-static void do_tb_read_exec_freq(void *p, uint32_t hash, void *userp)
+void tb_dump_exec_freq(uint32_t max_tbs_to_print)
 {
-    TranslationBlock *tb = p;
-    TBStatistics tbscmp;
-    tbscmp.pc = tb->pc;
-    tbscmp.cs_base = tb->cs_base;
-    tbscmp.flags = tb->flags;
+    tb_ctx.tb_statistics = g_list_sort(tb_ctx.tb_statistics, inverse_sort_tbs);
 
-    TBStatistics *tbs = qht_lookup(userp, &tbscmp, hash);
+    uint32_t tbs_printed = 0;
+    for (GList *i = tb_ctx.tb_statistics; i != NULL; i = i->next) {
+        tbs_printed++;
+	    tb_dump_statistics((TBStatistics *) i->data);
 
-    uint64_t exec_freq = tb_get_and_reset_exec_freq((TranslationBlock*) p);
-
-    if (tbs) {
-        tbs->total_exec_freq += exec_freq;
-    } else {
-        void *existing;
-        tbs = malloc(sizeof(TBStatistics));
-        tbs->total_exec_freq = exec_freq;
-        tbs->pc = tb->pc;
-        tbs->cs_base = tb->cs_base;
-        tbs->flags = tb->flags;
-        qht_insert(userp, tbs, hash, &existing);
+        if (max_tbs_to_print != 0 && tbs_printed >= max_tbs_to_print) {
+            break;
+        }
     }
-}
-
-void tb_read_exec_freq(void)
-{
-    qht_iter(&tb_ctx.htable, do_tb_read_exec_freq, &tb_ctx.tb_statistics);
 }
 
 /* flush all the translation blocks */
@@ -1304,10 +1308,6 @@ static void do_tb_flush(CPUState *cpu, run_on_cpu_data tb_flush_count)
 
     CPU_FOREACH(cpu) {
         cpu_tb_jmp_cache_clear(cpu);
-    }
-
-    if (enable_freq_count) {
-        tb_read_exec_freq();
     }
 
     qht_reset_size(&tb_ctx.htable, CODE_GEN_HTABLE_SIZE);
@@ -1644,6 +1644,29 @@ static inline void tb_page_add(PageDesc *p, TranslationBlock *tb,
 #endif
 }
 
+static void tb_insert_statistics_structure(TranslationBlock *tb) {
+    TBStatistics *new_stats = g_new0(TBStatistics, 1);
+    new_stats->pc = tb->pc;
+    new_stats->cs_base = tb->cs_base;
+    new_stats->flags = tb->flags;
+    new_stats->page_addr[0] = tb->page_addr[0];
+    new_stats->page_addr[1] = tb->page_addr[1];
+
+	GList *lookup_result = g_list_find_custom(tb_ctx.tb_statistics, new_stats, statistics_cmp);
+    
+	if (lookup_result) {
+		/* If there is already a TBStatistic for this TB from a previous flush
+		* then just make the new TB point to the older TBStatistic
+		*/
+		free(new_stats);
+    	tb->tb_stats = lookup_result->data;
+	} else {
+		/* If not, then points to the new tb_statistics and add it to the hash */
+		tb->tb_stats = new_stats;
+    	tb_ctx.tb_statistics = g_list_prepend(tb_ctx.tb_statistics, new_stats);
+	}
+}
+
 /* add a new TB and link it to the physical page tables. phys_page2 is
  * (-1) to indicate that only one page contains the TB.
  *
@@ -1694,9 +1717,15 @@ tb_link_page(TranslationBlock *tb, tb_page_addr_t phys_pc,
         void *existing_tb = NULL;
         uint32_t h;
 
-        /* add in the hash table */
         h = tb_hash_func(phys_pc, tb->pc, tb->flags, tb->cflags & CF_HASH_MASK,
                          tb->trace_vcpu_dstate);
+
+    	if (qemu_loglevel_mask(CPU_LOG_HOT_TBS)) {
+        	/* create and add a structure to store statistics from this TB */
+        	tb_insert_statistics_structure(tb);
+		}
+
+        /* add in the hash table */
         qht_insert(&tb_ctx.htable, tb, h, &existing_tb);
 
         /* remove TB from the page(s) if we couldn't insert it */
@@ -1781,8 +1810,8 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
     tb->flags = flags;
     tb->cflags = cflags;
     tb->trace_vcpu_dstate = *cpu->trace_dstate;
-    tb->exec_freq = 0;
     tcg_ctx->tb_cflags = cflags;
+
  tb_overflow:
 
 #ifdef CONFIG_PROFILER
