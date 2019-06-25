@@ -291,9 +291,9 @@ ETEXI
     },
     {
         .name       = "tbs",
-        .args_type  = "",
-        .params     = "",
-        .help       = "show information about translated blocks",
+        .args_type  = "number:i?",
+        .params     = "[number]",
+        .help       = "show hottest [number] translated blocks",
         .cmd        = hmp_info_tbs,
     },
     {

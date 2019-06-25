@@ -471,6 +471,7 @@ static void hmp_info_jit(Monitor *mon, const QDict *qdict)
 
 static void hmp_info_tbs(Monitor *mon, const QDict *qdict)
 {
+    int n;
     if (!tcg_enabled()) {
         error_report("TB information is only available with accel=tcg");
         return;
@@ -479,8 +480,8 @@ static void hmp_info_tbs(Monitor *mon, const QDict *qdict)
         error_report("TB information not being recorded");
         return;
     }
-
-    dump_tbs_info(10, true);
+    n = qdict_get_try_int(qdict, "number", 10);
+    dump_tbs_info(n, true);
 }
 
 static void hmp_info_tb(Monitor *mon, const QDict *qdict)
