@@ -289,6 +289,20 @@ ETEXI
         .help       = "show dynamic compiler info",
         .cmd        = hmp_info_jit,
     },
+    {
+        .name       = "tbs",
+        .args_type  = "",
+        .params     = "",
+        .help       = "show information about translated blocks",
+        .cmd        = hmp_info_tbs,
+    },
+    {
+        .name       = "tb",
+        .args_type  = "",
+        .params     = "",
+        .help       = "show information about one translated block",
+        .cmd        = hmp_info_tb,
+    },
 #endif
 
 STEXI

@@ -469,6 +469,28 @@ static void hmp_info_jit(Monitor *mon, const QDict *qdict)
     dump_drift_info();
 }
 
+static void hmp_info_tbs(Monitor *mon, const QDict *qdict)
+{
+    if (!tcg_enabled()) {
+        error_report("TB information is only available with accel=tcg");
+        return;
+    }
+    if (!qemu_loglevel_mask(CPU_LOG_HOT_TBS)) {
+        error_report("TB information not being recorded");
+        return;
+    }
+
+    /* dump_tbs_info(); */
+}
+
+static void hmp_info_tb(Monitor *mon, const QDict *qdict)
+{
+    if (!tcg_enabled()) {
+        error_report("TB information is only available with accel=tcg");
+        return;
+    }
+}
+
 static void hmp_info_opcount(Monitor *mon, const QDict *qdict)
 {
     dump_opcount_info();
