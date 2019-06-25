@@ -1321,6 +1321,42 @@ void tb_dump_exec_freq(uint32_t max_tbs_to_print)
     }
 }
 
+static void do_dump_tbs_info(int count)
+{
+    tb_ctx.tb_statistics = g_list_sort(tb_ctx.tb_statistics, inverse_sort_tbs);
+
+    for (GList *i = tb_ctx.tb_statistics; i && count--; i = i->next) {
+        TBStatistics *tbs = (TBStatistics *) i->data;
+        /* XXX: we should just have an unsigned long counter */
+        unsigned long hits = (unsigned long) (tbs->exec_count +
+                                              tbs->exec_count_overflows*0xFFFFFFFF);
+        qemu_log("PC: 0x"TARGET_FMT_lx" COUNT: %lu\n",
+                 tbs->pc, hits);
+    }
+}
+
+static void do_dump_tbs_info_safe(CPUState *cpu, run_on_cpu_data count)
+{
+    qemu_log_to_monitor(true);
+    do_dump_tbs_info(count.host_int);
+    qemu_log_to_monitor(false);
+}
+
+/*
+ * When we dump_tbs_info on a live system via the HMP we want to
+ * ensure the system is quiessent before we start outputting stuff.
+ * Otherwise we could pollute the output with other logging output.
+ */
+void dump_tbs_info(int count, bool use_monitor)
+{
+    if (use_monitor) {
+        async_safe_run_on_cpu(first_cpu, do_dump_tbs_info_safe,
+                              RUN_ON_CPU_HOST_INT(count));
+    } else {
+        do_dump_tbs_info(count);
+    }
+}
+
 void tb_flush(CPUState *cpu)
 {
     if (tcg_enabled()) {

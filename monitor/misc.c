@@ -480,7 +480,7 @@ static void hmp_info_tbs(Monitor *mon, const QDict *qdict)
         return;
     }
 
-    /* dump_tbs_info(); */
+    dump_tbs_info(10, true);
 }
 
 static void hmp_info_tb(Monitor *mon, const QDict *qdict)

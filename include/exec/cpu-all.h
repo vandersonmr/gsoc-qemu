@@ -365,6 +365,16 @@ void dump_exec_info(void);
 void dump_opcount_info(void);
 #endif /* !CONFIG_USER_ONLY */
 
+/**
+ * dump_tbs_info: report the hottest blocks
+ *
+ * @count: the limit of hotblocks
+ * @use_monitor: redirect output to monitor
+ *
+ * Report the hottest blocks to either the log or monitor
+ */
+void dump_tbs_info(int count, bool use_monitor);
+
 int cpu_memory_rw_debug(CPUState *cpu, target_ulong addr,
                         uint8_t *buf, target_ulong len, int is_write);
 
