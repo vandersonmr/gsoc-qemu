@@ -1307,20 +1307,6 @@ static gint inverse_sort_tbs(gconstpointer p1, gconstpointer p2)
     return p1_count < p2_count ? 1 : p1_count == p2_count ? 0 : -1;
 }
 
-void tb_dump_exec_freq(uint32_t max_tbs_to_print)
-{
-    tb_ctx.tb_statistics = g_list_sort(tb_ctx.tb_statistics, inverse_sort_tbs);
-
-    uint32_t tbs_printed = 0;
-    for (GList *i = tb_ctx.tb_statistics; i != NULL; i = i->next) {
-        tbs_printed++;
-	    tb_dump_statistics((TBStatistics *) i->data);
-        if (max_tbs_to_print != 0 && tbs_printed >= max_tbs_to_print) {
-            break;
-        }
-    }
-}
-
 static void do_dump_tbs_info(int count)
 {
     tb_ctx.tb_statistics = g_list_sort(tb_ctx.tb_statistics, inverse_sort_tbs);
