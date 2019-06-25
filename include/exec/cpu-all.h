@@ -375,6 +375,17 @@ void dump_opcount_info(void);
  */
 void dump_tbs_info(int count, bool use_monitor);
 
+/**
+ * dump_tb_info: dump information about one TB
+ *
+ * @addr: the guest address of the block
+ * @mask: the temporary logging mask
+ * @Use_monitor: redirect output to monitor
+ *
+ * Re-run a translation of a block at addr for the purposes of debug output
+ */
+void dump_tb_info(target_ulong addr, int log_mask, bool use_monitor);
+
 int cpu_memory_rw_debug(CPUState *cpu, target_ulong addr,
                         uint8_t *buf, target_ulong len, int is_write);
 

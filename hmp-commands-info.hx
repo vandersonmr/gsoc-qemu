@@ -298,8 +298,8 @@ ETEXI
     },
     {
         .name       = "tb",
-        .args_type  = "",
-        .params     = "",
+        .args_type  = "addr:l,flags:s?",
+        .params     = "address [log1[,...] flags]",
         .help       = "show information about one translated block",
         .cmd        = hmp_info_tb,
     },

@@ -486,10 +486,23 @@ static void hmp_info_tbs(Monitor *mon, const QDict *qdict)
 
 static void hmp_info_tb(Monitor *mon, const QDict *qdict)
 {
+    const target_ulong addr = qdict_get_int(qdict, "addr");
+    const char *flags = qdict_get_try_str(qdict, "flags");
+    int mask;
+
     if (!tcg_enabled()) {
         error_report("TB information is only available with accel=tcg");
         return;
     }
+
+    mask = flags ? qemu_str_to_log_mask(flags) : CPU_LOG_TB_IN_ASM;
+
+    if (!mask) {
+        help_cmd(mon, "log");
+        return;
+    }
+
+    dump_tb_info(addr, mask, true);
 }
 
 static void hmp_info_opcount(Monitor *mon, const QDict *qdict)

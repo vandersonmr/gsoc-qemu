@@ -1240,27 +1240,6 @@ static gboolean tb_host_size_iter(gpointer key, gpointer value, gpointer data)
     return false;
 }
 
-static void tb_dump_statistics(TBStatistics *tbs)
-{
-    uint32_t cflags = curr_cflags() | CF_NOCACHE;
-    int old_log_flags = qemu_loglevel;
-
-    qemu_set_log(CPU_LOG_TB_OP_OPT);
-
-    qemu_log("\n------------------------------\n");
-    qemu_log("Translation Block PC: \t0x"TARGET_FMT_lx "\n", tbs->pc);
-    qemu_log("Execution Count: \t%lu\n\n", (uint64_t) (tbs->exec_count + tbs->exec_count_overflows*0xFFFFFFFF));
-
-    mmap_lock();
-    TranslationBlock *tb = tb_gen_code(current_cpu, tbs->pc, tbs->cs_base, tbs->flags, cflags);
-    tb_phys_invalidate(tb, -1);
-    mmap_unlock();
-
-    qemu_set_log(old_log_flags);
-
-    tcg_tb_remove(tb);
-}
-
 /* flush all the translation blocks */
 static void do_tb_flush(CPUState *cpu, run_on_cpu_data tb_flush_count)
 {
@@ -1316,8 +1295,8 @@ static void do_dump_tbs_info(int count)
         /* XXX: we should just have an unsigned long counter */
         unsigned long hits = (unsigned long) (tbs->exec_count +
                                               tbs->exec_count_overflows*0xFFFFFFFF);
-        qemu_log("PC: 0x"TARGET_FMT_lx" COUNT: %lu\n",
-                 tbs->pc, hits);
+        qemu_log("TB: 0x"TARGET_FMT_lx"/%#08x COUNT: %lu\n",
+                 tbs->pc, tbs->flags, hits);
     }
 }
 
@@ -1341,6 +1320,81 @@ void dump_tbs_info(int count, bool use_monitor)
     } else {
         do_dump_tbs_info(count);
     }
+}
+
+static void do_tb_dump_with_statistics(gpointer data, gpointer user_data)
+{
+    TBStatistics *tbs = (TBStatistics *) data;
+    uint32_t cflags = tbs->flags | CF_NOCACHE;
+    int log_flags = GPOINTER_TO_INT(user_data);
+    int old_log_flags = qemu_loglevel;
+
+    qemu_set_log(log_flags);
+
+    qemu_log("\n------------------------------\n");
+    qemu_log("Translation Block PC: \t0x"TARGET_FMT_lx"/%#08x\n",
+             tbs->pc, tbs->flags);
+    qemu_log("Execution Count: \t%lu\n\n",
+             (uint64_t) (tbs->exec_count + tbs->exec_count_overflows*0xFFFFFFFF));
+
+    mmap_lock();
+    TranslationBlock *tb = tb_gen_code(current_cpu, tbs->pc, tbs->cs_base,
+                                       tbs->flags, cflags);
+    tb_phys_invalidate(tb, -1);
+    mmap_unlock();
+
+    qemu_set_log(old_log_flags);
+
+    tcg_tb_remove(tb);
+}
+
+struct tb_dump_info {
+    target_ulong addr;
+    int log_flags;
+    bool use_monitor;
+};
+
+struct tb_find_data {
+    target_ulong addr;
+    /* XXX: expand for inc cflags etc */
+};
+
+static gint tb_stats_finder(gconstpointer stats, gconstpointer match)
+{
+    TBStatistics *s = (TBStatistics *) stats;
+    struct tb_find_data *f = (struct tb_find_data *) match;
+    return (s->pc == f->addr);
+}
+
+static void do_dump_tb_info_safe(CPUState *cpu, run_on_cpu_data info)
+{
+    struct tb_dump_info *tbdi = (struct tb_dump_info *) info.host_ptr;
+    struct tb_find_data tbfd = { .addr = tbdi->addr };
+    GList *hits = g_list_find_custom(tb_ctx.tb_statistics,
+                                     (gpointer) &tbfd,
+                                     &tb_stats_finder);
+
+    qemu_log_to_monitor(tbdi->use_monitor);
+    g_list_foreach(hits, do_tb_dump_with_statistics,
+                   GINT_TO_POINTER(tbdi->log_flags));
+    qemu_log_to_monitor(false);
+    g_free(tbdi);
+}
+
+
+/* XXX: only from monitor? */
+void dump_tb_info(target_ulong addr, int log_mask, bool use_monitor)
+{
+    struct tb_dump_info *tbdi = g_new(struct tb_dump_info, 1);
+
+    tbdi->addr = addr;
+    tbdi->log_flags = log_mask;
+    tbdi->use_monitor = use_monitor;
+
+    async_safe_run_on_cpu(first_cpu, do_dump_tb_info_safe,
+                          RUN_ON_CPU_HOST_PTR(tbdi));
+
+    /* tbdi free'd by do_dump_tb_info_safe */
 }
 
 void tb_flush(CPUState *cpu)
