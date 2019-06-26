@@ -42,11 +42,10 @@ int qemu_log(const char *fmt, ...)
     va_start(ap, fmt);
 
     if (to_monitor) {
-        ret = qemu_printf(fmt, ap);
+        ret = qemu_vprintf(fmt, ap);
     } else if (qemu_logfile) {
         ret = vfprintf(qemu_logfile, fmt, ap);
     }
-
     va_end(ap);
 
     /* Don't pass back error results.  */
