@@ -298,9 +298,9 @@ ETEXI
     },
     {
         .name       = "tb",
-        .args_type  = "addr:l,flags:s?",
-        .params     = "address [log1[,...] flags]",
-        .help       = "show information about one translated block",
+        .args_type  = "id:i,flags:s?",
+        .params     = "id [log1[,...] flags]",
+        .help       = "show information about one translated block by id",
         .cmd        = hmp_info_tb,
     },
 #endif

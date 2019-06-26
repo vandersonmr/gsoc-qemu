@@ -354,6 +354,9 @@ struct TBStatistics {
         unsigned long total;
         unsigned long atomic;
     } executions;
+
+    /* HMP information - used for referring to previous search */
+    int display_id;
 };
 
 /*

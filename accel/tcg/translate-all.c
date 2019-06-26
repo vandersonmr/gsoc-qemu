@@ -1302,23 +1302,30 @@ static void collect_tb_stats(void *p, uint32_t hash, void *userp)
 
 static void dump_tb_header(TBStatistics *tbs)
 {
-    qemu_log("TB: phys:0x"TB_PAGE_ADDR_FMT" virt:0x"TARGET_FMT_lx
+    qemu_log("TB%d: phys:0x"TB_PAGE_ADDR_FMT" virt:0x"TARGET_FMT_lx
              " flags:%#08x (trans:%lu uncached:%lu exec:%lu)\n",
+             tbs->display_id,
              tbs->phys_pc, tbs->pc, tbs->flags,
              tbs->translations.total, tbs->translations.uncached,
              tbs->executions.total);
 }
 
+static GList *last_search;
+
 static void do_dump_tbs_info(int count)
 {
-    GList *data = NULL;
+    int id = 0;
 
-    qht_iter(&tb_ctx.htable, collect_tb_stats, &data);
+    g_list_free(last_search);
+    last_search = NULL;
 
-    data = g_list_sort(data, inverse_sort_tbs);
+    qht_iter(&tb_ctx.tb_stats, collect_tb_stats, &last_search);
 
-    for (GList *i = data; i && count--; i = i->next) {
+    last_search = g_list_sort(last_search, inverse_sort_tbs);
+
+    for (GList *i = last_search; i && count--; i = i->next) {
         TBStatistics *tbs = (TBStatistics *) i->data;
+        tbs->display_id = id++;
         dump_tb_header(tbs);
     }
 }
@@ -1345,11 +1352,9 @@ void dump_tbs_info(int count, bool use_monitor)
     }
 }
 
-static void do_tb_dump_with_statistics(gpointer data, gpointer user_data)
+static void do_tb_dump_with_statistics(TBStatistics *tbs, int log_flags)
 {
-    TBStatistics *tbs = (TBStatistics *) data;
     uint32_t cflags = curr_cflags() | CF_NOCACHE;
-    int log_flags = GPOINTER_TO_INT(user_data);
     int old_log_flags = qemu_loglevel;
 
     qemu_set_log(log_flags);
@@ -1369,54 +1374,39 @@ static void do_tb_dump_with_statistics(gpointer data, gpointer user_data)
 }
 
 struct tb_dump_info {
-    target_ulong addr;
+    int id;
     int log_flags;
     bool use_monitor;
 };
 
-struct tb_find_data {
-    GList *list;
-    target_ulong addr;
-    /* XXX: expand for inc cflags and other searches etc */
-};
-
-static void tb_stats_finder(void *p, uint32_t hash, void *userp)
-{
-    TBStatistics *s = (TBStatistics *) p;
-    struct tb_find_data *f = (struct tb_find_data *) userp;
-    bool match = true;
-
-    match &= f->addr ? s->pc == f->addr : true;
-
-    if (match) {
-        f->list = g_list_append(f->list, s);
-    }
-}
-
 static void do_dump_tb_info_safe(CPUState *cpu, run_on_cpu_data info)
 {
     struct tb_dump_info *tbdi = (struct tb_dump_info *) info.host_ptr;
-    struct tb_find_data tbfd = {
-        .list = NULL,
-        .addr = tbdi->addr };
+    GList *iter;
 
-    qht_iter(&tb_ctx.tb_stats, tb_stats_finder, &tbfd);
-
+    if (!last_search) {
+        qemu_printf("no search on record");
+        return;
+    }
     qemu_log_to_monitor(tbdi->use_monitor);
-    g_list_foreach(tbfd.list, do_tb_dump_with_statistics,
-                   GINT_TO_POINTER(tbdi->log_flags));
+
+    for (iter = last_search; iter; iter = g_list_next(iter)) {
+        TBStatistics *tbs = iter->data;
+        if (tbs->display_id == tbdi->id) {
+            do_tb_dump_with_statistics(tbs, tbdi->log_flags);
+        }
+    }
     qemu_log_to_monitor(false);
-    g_list_free(tbfd.list);
     g_free(tbdi);
 }
 
 
 /* XXX: only from monitor? */
-void dump_tb_info(target_ulong addr, int log_mask, bool use_monitor)
+void dump_tb_info(int id, int log_mask, bool use_monitor)
 {
     struct tb_dump_info *tbdi = g_new(struct tb_dump_info, 1);
 
-    tbdi->addr = addr;
+    tbdi->id = id;
     tbdi->log_flags = log_mask;
     tbdi->use_monitor = use_monitor;
 

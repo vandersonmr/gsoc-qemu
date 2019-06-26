@@ -486,7 +486,7 @@ static void hmp_info_tbs(Monitor *mon, const QDict *qdict)
 
 static void hmp_info_tb(Monitor *mon, const QDict *qdict)
 {
-    const target_ulong addr = qdict_get_int(qdict, "addr");
+    const int id = qdict_get_int(qdict, "id");
     const char *flags = qdict_get_try_str(qdict, "flags");
     int mask;
 
@@ -502,7 +502,7 @@ static void hmp_info_tb(Monitor *mon, const QDict *qdict)
         return;
     }
 
-    dump_tb_info(addr, mask, true);
+    dump_tb_info(id, mask, true);
 }
 
 static void hmp_info_opcount(Monitor *mon, const QDict *qdict)
