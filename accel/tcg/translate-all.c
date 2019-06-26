@@ -1294,10 +1294,12 @@ static gint inverse_sort_tbs(gconstpointer p1, gconstpointer p2)
     return c1 < c2 ? 1 : c1 == c2 ? 0 : -1;
 }
 
+/* only accessed in safe work */
+static GList *last_search;
+
 static void collect_tb_stats(void *p, uint32_t hash, void *userp)
 {
-    GList **list = userp;
-    *list = g_list_prepend(*list, p);
+    last_search = g_list_prepend(last_search, p);
 }
 
 static void dump_tb_header(TBStatistics *tbs)
@@ -1310,24 +1312,29 @@ static void dump_tb_header(TBStatistics *tbs)
              tbs->executions.total);
 }
 
-static GList *last_search;
-
 static void do_dump_tbs_info(int count)
 {
-    int id = 0;
+    int id = 1;
+    GList *i;
 
     g_list_free(last_search);
     last_search = NULL;
 
-    qht_iter(&tb_ctx.tb_stats, collect_tb_stats, &last_search);
+    /* XXX: we could pass user data to collect_tb_stats to filter */
+    qht_iter(&tb_ctx.tb_stats, collect_tb_stats, NULL);
 
     last_search = g_list_sort(last_search, inverse_sort_tbs);
 
-    for (GList *i = last_search; i && count--; i = i->next) {
+    for (i = last_search; i && count--; i = i->next) {
         TBStatistics *tbs = (TBStatistics *) i->data;
         tbs->display_id = id++;
         dump_tb_header(tbs);
     }
+
+    /* free the unused bits */
+    i->next->prev = NULL;
+    g_list_free(i->next);
+    i->next = NULL;
 }
 
 static void do_dump_tbs_info_safe(CPUState *cpu, run_on_cpu_data count)
