@@ -1361,19 +1361,29 @@ void dump_tbs_info(int count, bool use_monitor)
 
 static void do_tb_dump_with_statistics(TBStatistics *tbs, int log_flags)
 {
+    CPUState *cpu = current_cpu;
     uint32_t cflags = curr_cflags() | CF_NOCACHE;
     int old_log_flags = qemu_loglevel;
+    TranslationBlock *tb = NULL;
 
     qemu_set_log(log_flags);
 
     qemu_log("\n------------------------------\n");
     dump_tb_header(tbs);
 
-    mmap_lock();
-    TranslationBlock *tb = tb_gen_code(current_cpu, tbs->pc, tbs->cs_base,
-                                       tbs->flags, cflags);
-    tb_phys_invalidate(tb, -1);
-    mmap_unlock();
+    if (sigsetjmp(cpu->jmp_env, 0) == 0) {
+        mmap_lock();
+        tb = tb_gen_code(cpu, tbs->pc, tbs->cs_base, tbs->flags, cflags);
+        tb_phys_invalidate(tb, -1);
+        mmap_unlock();
+    } else {
+        /*
+         * The mmap_lock is dropped by tb_gen_code if it runs out of
+         * memory.
+         */
+        fprintf(stderr, "%s: dbg failed!\n", __func__);
+        assert_no_pages_locked();
+    }
 
     qemu_set_log(old_log_flags);
 
