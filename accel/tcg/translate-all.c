@@ -1118,18 +1118,6 @@ static inline void code_gen_alloc(size_t tb_size)
     }
 }
 
-static gint statistics_cmp(gconstpointer p1, gconstpointer p2) 
-{
-    const TBStatistics *a = (TBStatistics *) p1;
-    const TBStatistics *b = (TBStatistics *) p2;
-
-    return (a->pc == b->pc && 
-		   a->cs_base == b->cs_base &&
-		   a->flags == b->flags && 
-	       a->page_addr[0] == b->page_addr[0] &&
-    	   a->page_addr[1] == b->page_addr[1]) ? 0 : 1; 
-}
-
 static bool tb_cmp(const void *ap, const void *bp)
 {
     const TranslationBlock *a = ap;
@@ -1144,11 +1132,31 @@ static bool tb_cmp(const void *ap, const void *bp)
         a->page_addr[1] == b->page_addr[1];
 }
 
+/*
+ * Yes this is the more or less the same compare, but the data
+ * persists over tb_flush. We also aggregate the various variations of
+ * cflags under one record.
+ */
+static bool tb_stats_cmp(const void *ap, const void *bp)
+{
+    const TBStatistics *a = ap;
+    const TBStatistics *b = bp;
+
+    return a->pc == b->pc &&
+        a->cs_base == b->cs_base &&
+        a->flags == b->flags &&
+        a->page_addr[0] == b->page_addr[0] &&
+        a->page_addr[1] == b->page_addr[1];
+}
+
 static void tb_htable_init(void)
 {
     unsigned int mode = QHT_MODE_AUTO_RESIZE;
 
     qht_init(&tb_ctx.htable, tb_cmp, CODE_GEN_HTABLE_SIZE, mode);
+    if (qemu_loglevel_mask(CPU_LOG_HOT_TBS)) {
+        qht_init(&tb_ctx.tb_stats, tb_stats_cmp, CODE_GEN_HTABLE_SIZE, mode);
+    }
 }
 
 /* Must be called before using the QEMU cpus. 'tb_size' is the size
@@ -1286,11 +1294,21 @@ static gint inverse_sort_tbs(gconstpointer p1, gconstpointer p2)
     return p1_count < p2_count ? 1 : p1_count == p2_count ? 0 : -1;
 }
 
+static void collect_tb_stats(void *p, uint32_t hash, void *userp)
+{
+    GList **list = userp;
+    *list = g_list_prepend(*list, p);
+}
+
 static void do_dump_tbs_info(int count)
 {
-    tb_ctx.tb_statistics = g_list_sort(tb_ctx.tb_statistics, inverse_sort_tbs);
+    GList *data = NULL;
 
-    for (GList *i = tb_ctx.tb_statistics; i && count--; i = i->next) {
+    qht_iter(&tb_ctx.htable, collect_tb_stats, &data);
+
+    data = g_list_sort(data, inverse_sort_tbs);
+
+    for (GList *i = data; i && count--; i = i->next) {
         TBStatistics *tbs = (TBStatistics *) i->data;
         /* XXX: we should just have an unsigned long counter */
         unsigned long hits = (unsigned long) (tbs->exec_count +
@@ -1355,29 +1373,38 @@ struct tb_dump_info {
 };
 
 struct tb_find_data {
+    GList *list;
     target_ulong addr;
-    /* XXX: expand for inc cflags etc */
+    /* XXX: expand for inc cflags and other searches etc */
 };
 
-static gint tb_stats_finder(gconstpointer stats, gconstpointer match)
+static void tb_stats_finder(void *p, uint32_t hash, void *userp)
 {
-    TBStatistics *s = (TBStatistics *) stats;
-    struct tb_find_data *f = (struct tb_find_data *) match;
-    return (s->pc == f->addr);
+    TBStatistics *s = (TBStatistics *) p;
+    struct tb_find_data *f = (struct tb_find_data *) userp;
+    bool match = true;
+
+    match &= f->addr ? s->pc == f->addr : true;
+
+    if (match) {
+        f->list = g_list_append(f->list, s);
+    }
 }
 
 static void do_dump_tb_info_safe(CPUState *cpu, run_on_cpu_data info)
 {
     struct tb_dump_info *tbdi = (struct tb_dump_info *) info.host_ptr;
-    struct tb_find_data tbfd = { .addr = tbdi->addr };
-    GList *hits = g_list_find_custom(tb_ctx.tb_statistics,
-                                     (gpointer) &tbfd,
-                                     &tb_stats_finder);
+    struct tb_find_data tbfd = {
+        .list = NULL,
+        .addr = tbdi->addr };
+
+    qht_iter(&tb_ctx.tb_stats, tb_stats_finder, &tbfd);
 
     qemu_log_to_monitor(tbdi->use_monitor);
-    g_list_foreach(hits, do_tb_dump_with_statistics,
+    g_list_foreach(tbfd.list, do_tb_dump_with_statistics,
                    GINT_TO_POINTER(tbdi->log_flags));
     qemu_log_to_monitor(false);
+    g_list_free(tbfd.list);
     g_free(tbdi);
 }
 
@@ -1719,27 +1746,27 @@ static inline void tb_page_add(PageDesc *p, TranslationBlock *tb,
 #endif
 }
 
-static void tb_insert_statistics_structure(TranslationBlock *tb) {
+static void tb_add_stats(TranslationBlock *tb, uint32_t tb_hash) {
     TBStatistics *new_stats = g_new0(TBStatistics, 1);
+    void *existing_stats = NULL;
     new_stats->pc = tb->pc;
     new_stats->cs_base = tb->cs_base;
     new_stats->flags = tb->flags;
     new_stats->page_addr[0] = tb->page_addr[0];
     new_stats->page_addr[1] = tb->page_addr[1];
 
-	GList *lookup_result = g_list_find_custom(tb_ctx.tb_statistics, new_stats, statistics_cmp);
+    qht_insert(&tb_ctx.tb_stats, new_stats, tb_hash, &existing_stats);
 
-	if (lookup_result) {
-		/* If there is already a TBStatistic for this TB from a previous flush
-		* then just make the new TB point to the older TBStatistic
-		*/
-		free(new_stats);
-    	tb->tb_stats = lookup_result->data;
-	} else {
-		/* If not, then points to the new tb_statistics and add it to the hash */
-		tb->tb_stats = new_stats;
-    	tb_ctx.tb_statistics = g_list_prepend(tb_ctx.tb_statistics, new_stats);
-	}
+    if (unlikely(existing_stats)) {
+        /*
+         * If there is already a TBStatistic for this TB from a previous flush
+         * then just make the new TB point to the older TBStatistic
+         */
+        g_free(new_stats);
+        tb->tb_stats = existing_stats;
+    } else {
+        tb->tb_stats = new_stats;
+    }
 }
 
 /* add a new TB and link it to the physical page tables. phys_page2 is
@@ -1792,11 +1819,6 @@ tb_link_page(TranslationBlock *tb, tb_page_addr_t phys_pc,
         void *existing_tb = NULL;
         uint32_t h;
 
-        if (qemu_loglevel_mask(CPU_LOG_HOT_TBS)) {
-        	/* create and link to its TB a structure to store statistics */
-        	tb_insert_statistics_structure(tb);
-		}
-
         /* add in the hash table */
         h = tb_hash_func(phys_pc, tb->pc, tb->flags, tb->cflags & CF_HASH_MASK,
                          tb->trace_vcpu_dstate);
@@ -1811,6 +1833,10 @@ tb_link_page(TranslationBlock *tb, tb_page_addr_t phys_pc,
                 invalidate_page_bitmap(p2);
             }
             tb = existing_tb;
+            /* an existing TB already has a stats record */
+        } else if (qemu_loglevel_mask(CPU_LOG_HOT_TBS)) {
+            /* create and link to its TB a structure to store statistics */
+            tb_add_stats(tb, h);
         }
     }
 
@@ -1884,6 +1910,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
     tb->flags = flags;
     tb->cflags = cflags;
     tb->trace_vcpu_dstate = *cpu->trace_dstate;
+    tb->tb_stats = NULL;
     tcg_ctx->tb_cflags = cflags;
  tb_overflow:
 
