@@ -1133,20 +1133,20 @@ static bool tb_cmp(const void *ap, const void *bp)
 }
 
 /*
- * Yes this is the more or less the same compare, but the data
- * persists over tb_flush. We also aggregate the various variations of
- * cflags under one record.
+ * This is the more or less the same compare, but the data persists
+ * over tb_flush. We also aggregate the various variations of cflags
+ * under one record and ignore the details of page overlap (although
+ * we can count it).
  */
 static bool tb_stats_cmp(const void *ap, const void *bp)
 {
     const TBStatistics *a = ap;
     const TBStatistics *b = bp;
 
-    return a->pc == b->pc &&
+    return a->phys_pc == b->phys_pc &&
+        a->pc == b->pc &&
         a->cs_base == b->cs_base &&
-        a->flags == b->flags &&
-        a->page_addr[0] == b->page_addr[0] &&
-        a->page_addr[1] == b->page_addr[1];
+        a->flags == b->flags;
 }
 
 static void tb_htable_init(void)
@@ -1288,16 +1288,25 @@ static gint inverse_sort_tbs(gconstpointer p1, gconstpointer p2)
 {
     const TBStatistics *tbs1 = (TBStatistics *) p1;
     const TBStatistics *tbs2 = (TBStatistics *) p2;
-    uint64_t p1_count = (uint64_t) (tbs1->exec_count + tbs1->exec_count_overflows*0xFFFFFFFF);
-    uint64_t p2_count = (uint64_t) (tbs2->exec_count + tbs2->exec_count_overflows*0xFFFFFFFF);
+    unsigned long c1 = tbs1->executions.total;
+    unsigned long c2 = tbs2->executions.total;
 
-    return p1_count < p2_count ? 1 : p1_count == p2_count ? 0 : -1;
+    return c1 < c2 ? 1 : c1 == c2 ? 0 : -1;
 }
 
 static void collect_tb_stats(void *p, uint32_t hash, void *userp)
 {
     GList **list = userp;
     *list = g_list_prepend(*list, p);
+}
+
+static void dump_tb_header(TBStatistics *tbs)
+{
+    qemu_log("TB: phys:0x"TB_PAGE_ADDR_FMT" virt:0x"TARGET_FMT_lx
+             " flags:%#08x (trans:%lu uncached:%lu exec:%lu)\n",
+             tbs->phys_pc, tbs->pc, tbs->flags,
+             tbs->translations.total, tbs->translations.uncached,
+             tbs->executions.total);
 }
 
 static void do_dump_tbs_info(int count)
@@ -1310,11 +1319,7 @@ static void do_dump_tbs_info(int count)
 
     for (GList *i = data; i && count--; i = i->next) {
         TBStatistics *tbs = (TBStatistics *) i->data;
-        /* XXX: we should just have an unsigned long counter */
-        unsigned long hits = (unsigned long) (tbs->exec_count +
-                                              tbs->exec_count_overflows*0xFFFFFFFF);
-        qemu_log("TB: 0x"TARGET_FMT_lx"/%#08x COUNT: %lu\n",
-                 tbs->pc, tbs->flags, hits);
+        dump_tb_header(tbs);
     }
 }
 
@@ -1343,17 +1348,14 @@ void dump_tbs_info(int count, bool use_monitor)
 static void do_tb_dump_with_statistics(gpointer data, gpointer user_data)
 {
     TBStatistics *tbs = (TBStatistics *) data;
-    uint32_t cflags = tbs->flags | CF_NOCACHE;
+    uint32_t cflags = curr_cflags() | CF_NOCACHE;
     int log_flags = GPOINTER_TO_INT(user_data);
     int old_log_flags = qemu_loglevel;
 
     qemu_set_log(log_flags);
 
     qemu_log("\n------------------------------\n");
-    qemu_log("Translation Block PC: \t0x"TARGET_FMT_lx"/%#08x\n",
-             tbs->pc, tbs->flags);
-    qemu_log("Execution Count: \t%lu\n\n",
-             (uint64_t) (tbs->exec_count + tbs->exec_count_overflows*0xFFFFFFFF));
+    dump_tb_header(tbs);
 
     mmap_lock();
     TranslationBlock *tb = tb_gen_code(current_cpu, tbs->pc, tbs->cs_base,
@@ -1746,16 +1748,18 @@ static inline void tb_page_add(PageDesc *p, TranslationBlock *tb,
 #endif
 }
 
-static void tb_add_stats(TranslationBlock *tb, uint32_t tb_hash) {
+static TBStatistics * tb_get_stats(tb_page_addr_t phys_pc, target_ulong pc,
+                                   target_ulong cs_base, uint32_t flags)
+{
     TBStatistics *new_stats = g_new0(TBStatistics, 1);
+    uint32_t hash = tb_stats_hash_func(phys_pc, pc, flags);
     void *existing_stats = NULL;
-    new_stats->pc = tb->pc;
-    new_stats->cs_base = tb->cs_base;
-    new_stats->flags = tb->flags;
-    new_stats->page_addr[0] = tb->page_addr[0];
-    new_stats->page_addr[1] = tb->page_addr[1];
+    new_stats->phys_pc = phys_pc;
+    new_stats->pc = pc;
+    new_stats->cs_base = cs_base;
+    new_stats->flags = flags;
 
-    qht_insert(&tb_ctx.tb_stats, new_stats, tb_hash, &existing_stats);
+    qht_insert(&tb_ctx.tb_stats, new_stats, hash, &existing_stats);
 
     if (unlikely(existing_stats)) {
         /*
@@ -1763,9 +1767,9 @@ static void tb_add_stats(TranslationBlock *tb, uint32_t tb_hash) {
          * then just make the new TB point to the older TBStatistic
          */
         g_free(new_stats);
-        tb->tb_stats = existing_stats;
+        return existing_stats;
     } else {
-        tb->tb_stats = new_stats;
+        return new_stats;
     }
 }
 
@@ -1833,10 +1837,6 @@ tb_link_page(TranslationBlock *tb, tb_page_addr_t phys_pc,
                 invalidate_page_bitmap(p2);
             }
             tb = existing_tb;
-            /* an existing TB already has a stats record */
-        } else if (qemu_loglevel_mask(CPU_LOG_HOT_TBS)) {
-            /* create and link to its TB a structure to store statistics */
-            tb_add_stats(tb, h);
         }
     }
 
@@ -1910,7 +1910,6 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
     tb->flags = flags;
     tb->cflags = cflags;
     tb->trace_vcpu_dstate = *cpu->trace_dstate;
-    tb->tb_stats = NULL;
     tcg_ctx->tb_cflags = cflags;
  tb_overflow:
 
@@ -1919,6 +1918,21 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
     atomic_set(&prof->tb_count1, prof->tb_count1 + 1);
     ti = profile_getclock();
 #endif
+
+    /*
+     * We want to fetch the stats structure before we start code
+     * generation so we can count interesting things about this
+     * generation.
+     *
+     * XXX: using loglevel is fugly - we should have a general flag
+     */
+    if (qemu_loglevel_mask(CPU_LOG_HOT_TBS)) {
+        tb->tb_stats = tb_get_stats(phys_pc, pc, cs_base, flags);
+        /* XXX: should we lock and update in bulk? */
+        atomic_inc(&tb->tb_stats->translations.total);
+    } else {
+        tb->tb_stats = NULL;
+    }
 
     tcg_func_start(tcg_ctx);
 
@@ -2050,6 +2064,9 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
     phys_page2 = -1;
     if ((pc & TARGET_PAGE_MASK) != virt_page2) {
         phys_page2 = get_page_addr_code(env, virt_page2);
+        if (tb->tb_stats) {
+            atomic_inc(&tb->tb_stats->translations.spanning);
+        }
     }
     /*
      * No explicit memory barrier is required -- tb_link_page() makes the
