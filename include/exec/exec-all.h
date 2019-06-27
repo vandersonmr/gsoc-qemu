@@ -355,6 +355,12 @@ struct TBStatistics {
         unsigned long atomic;
     } executions;
 
+    struct {
+        unsigned num_guest_inst;
+        unsigned num_host_inst;
+        unsigned num_tcg_inst;
+    } code;
+
     /* HMP information - used for referring to previous search */
     int display_id;
 };

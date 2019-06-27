@@ -505,6 +505,28 @@ static void hmp_info_tb(Monitor *mon, const QDict *qdict)
     dump_tb_info(id, mask, true);
 }
 
+static void hmp_info_coverset(Monitor *mon, const QDict *qdict)
+{
+    int n;
+    if (!tcg_enabled()) {
+        error_report("TB information is only available with accel=tcg");
+        return;
+    }
+    if (!qemu_loglevel_mask(CPU_LOG_HOT_TBS)) {
+        error_report("TB information not being recorded");
+        return;
+    }
+
+    n = qdict_get_try_int(qdict, "number", 90);
+
+    if (n < 0 || n > 100) {
+        error_report("Coverset percentage should be between 0 and 100");
+        return;
+    }
+
+    dump_coverset_info(n, true);
+}
+
 static void hmp_info_opcount(Monitor *mon, const QDict *qdict)
 {
     dump_opcount_info();

@@ -1312,6 +1312,52 @@ static void dump_tb_header(TBStatistics *tbs)
              tbs->executions.total);
 }
 
+static void do_dump_coverset_info(int percentage)
+{
+    uint64_t total_exec_count = 0;
+    uint64_t covered_exec_count = 0;
+    unsigned coverset_size = 0;
+    int id = 1;
+    GList *i;
+
+    g_list_free(last_search);
+    last_search = NULL;
+
+    /* XXX: we could pass user data to collect_tb_stats to filter */
+    qht_iter(&tb_ctx.tb_stats, collect_tb_stats, NULL);
+
+    last_search = g_list_sort(last_search, inverse_sort_tbs);
+
+    /* Compute total execution count for all tbs */
+    for (i = last_search; i; i = i->next) {
+        TBStatistics *tbs = (TBStatistics *) i->data;
+        total_exec_count += tbs->executions.total;
+    }
+
+    for (i = last_search; i; i = i->next) {
+        TBStatistics *tbs = (TBStatistics *) i->data;
+        covered_exec_count += tbs->executions.total;
+        tbs->display_id = id++;
+        coverset_size++;
+        dump_tb_header(tbs);
+
+        /* Iterate and display tbs until reach the percentage count cover */
+        if (((double) covered_exec_count / total_exec_count) > ((double) percentage / 100)) { 
+            break;
+        }
+    }
+
+    qemu_log("\n------------------------------\n");
+    qemu_log("# of TBs to reach %d%% of the total exec count: %u \n", percentage, coverset_size);
+    qemu_log("Total exec count: %lu\n", total_exec_count);
+    qemu_log("\n------------------------------\n");
+
+    /* free the unused bits */
+    i->next->prev = NULL;
+    g_list_free(i->next);
+    i->next = NULL;
+}
+
 static void do_dump_tbs_info(int count)
 {
     int id = 1;
@@ -1337,6 +1383,13 @@ static void do_dump_tbs_info(int count)
     i->next = NULL;
 }
 
+static void do_dump_coverset_info_safe(CPUState *cpu, run_on_cpu_data percentage)
+{
+    qemu_log_to_monitor(true);
+    do_dump_coverset_info(percentage.host_int);
+    qemu_log_to_monitor(false);
+}
+
 static void do_dump_tbs_info_safe(CPUState *cpu, run_on_cpu_data count)
 {
     qemu_log_to_monitor(true);
@@ -1349,6 +1402,16 @@ static void do_dump_tbs_info_safe(CPUState *cpu, run_on_cpu_data count)
  * ensure the system is quiessent before we start outputting stuff.
  * Otherwise we could pollute the output with other logging output.
  */
+void dump_coverset_info(int percentage, bool use_monitor)
+{
+    if (use_monitor) {
+        async_safe_run_on_cpu(first_cpu, do_dump_coverset_info_safe,
+                              RUN_ON_CPU_HOST_INT(percentage));
+    } else {
+        do_dump_coverset_info(percentage);
+    }
+}
+
 void dump_tbs_info(int count, bool use_monitor)
 {
     if (use_monitor) {

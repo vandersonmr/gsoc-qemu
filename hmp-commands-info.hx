@@ -303,6 +303,14 @@ ETEXI
         .help       = "show information about one translated block by id",
         .cmd        = hmp_info_tb,
     },
+    {
+        .name       = "coverset",
+        .args_type  = "number:i?",
+        .params     = "[number]",
+        .help       = "show hottest translated blocks neccesary to cover"
+                      "[number]% of the execution count",
+        .cmd        = hmp_info_coverset,
+    },
 #endif
 
 STEXI

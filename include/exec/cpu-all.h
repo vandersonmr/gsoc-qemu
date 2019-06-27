@@ -366,6 +366,16 @@ void dump_opcount_info(void);
 #endif /* !CONFIG_USER_ONLY */
 
 /**
+ * dump_coverset_info: report the hottest blocks to cover n% of execution
+ *
+ * @percentage: cover set percentage
+ * @use_monitor: redirect output to monitor
+ *
+ * Report the hottest blocks to either the log or monitor
+ */
+void dump_coverset_info(int percentage, bool use_monitor);
+
+/**
  * dump_tbs_info: report the hottest blocks
  *
  * @count: the limit of hotblocks
