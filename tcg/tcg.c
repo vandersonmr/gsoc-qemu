@@ -4072,6 +4072,14 @@ int tcg_gen_code(TCGContext *s, TranslationBlock *tb)
     atomic_set(&prof->la_time, prof->la_time + profile_getclock());
 #endif
 
+    if (qemu_loglevel_mask(CPU_LOG_HOT_TBS) && tb->tb_stats) {
+        int n = 0;
+        QTAILQ_FOREACH(op, &s->ops, link) {
+            n++;
+        }
+        tb->tb_stats->code.num_tcg_inst = n;
+    }
+
 #ifdef DEBUG_DISAS
     if (unlikely(qemu_loglevel_mask(CPU_LOG_TB_OP_OPT)
                  && qemu_log_in_addr_range(tb->pc))) {
@@ -4171,6 +4179,7 @@ int tcg_gen_code(TCGContext *s, TranslationBlock *tb)
     }
     tcg_debug_assert(num_insns >= 0);
     s->gen_insn_end_off[num_insns] = tcg_current_code_size(s);
+
 
     /* Generate TB finalization at the end of block */
 #ifdef TCG_TARGET_NEED_LDST_LABELS

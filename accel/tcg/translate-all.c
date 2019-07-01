@@ -1284,218 +1284,6 @@ done:
     mmap_unlock();
 }
 
-static gint inverse_sort_tbs(gconstpointer p1, gconstpointer p2) 
-{
-    const TBStatistics *tbs1 = (TBStatistics *) p1;
-    const TBStatistics *tbs2 = (TBStatistics *) p2;
-    unsigned long c1 = tbs1->executions.total;
-    unsigned long c2 = tbs2->executions.total;
-
-    return c1 < c2 ? 1 : c1 == c2 ? 0 : -1;
-}
-
-/* only accessed in safe work */
-static GList *last_search;
-
-static void collect_tb_stats(void *p, uint32_t hash, void *userp)
-{
-    last_search = g_list_prepend(last_search, p);
-}
-
-static void dump_tb_header(TBStatistics *tbs)
-{
-    qemu_log("TB%d: phys:0x"TB_PAGE_ADDR_FMT" virt:0x"TARGET_FMT_lx
-             " flags:%#08x (trans:%lu uncached:%lu exec:%lu)\n",
-             tbs->display_id,
-             tbs->phys_pc, tbs->pc, tbs->flags,
-             tbs->translations.total, tbs->translations.uncached,
-             tbs->executions.total);
-}
-
-static void do_dump_coverset_info(int percentage)
-{
-    uint64_t total_exec_count = 0;
-    uint64_t covered_exec_count = 0;
-    unsigned coverset_size = 0;
-    int id = 1;
-    GList *i;
-
-    g_list_free(last_search);
-    last_search = NULL;
-
-    /* XXX: we could pass user data to collect_tb_stats to filter */
-    qht_iter(&tb_ctx.tb_stats, collect_tb_stats, NULL);
-
-    last_search = g_list_sort(last_search, inverse_sort_tbs);
-
-    /* Compute total execution count for all tbs */
-    for (i = last_search; i; i = i->next) {
-        TBStatistics *tbs = (TBStatistics *) i->data;
-        total_exec_count += tbs->executions.total;
-    }
-
-    for (i = last_search; i; i = i->next) {
-        TBStatistics *tbs = (TBStatistics *) i->data;
-        covered_exec_count += tbs->executions.total;
-        tbs->display_id = id++;
-        coverset_size++;
-        dump_tb_header(tbs);
-
-        /* Iterate and display tbs until reach the percentage count cover */
-        if (((double) covered_exec_count / total_exec_count) > ((double) percentage / 100)) { 
-            break;
-        }
-    }
-
-    qemu_log("\n------------------------------\n");
-    qemu_log("# of TBs to reach %d%% of the total exec count: %u \n", percentage, coverset_size);
-    qemu_log("Total exec count: %lu\n", total_exec_count);
-    qemu_log("\n------------------------------\n");
-
-    /* free the unused bits */
-    i->next->prev = NULL;
-    g_list_free(i->next);
-    i->next = NULL;
-}
-
-static void do_dump_tbs_info(int count)
-{
-    int id = 1;
-    GList *i;
-
-    g_list_free(last_search);
-    last_search = NULL;
-
-    /* XXX: we could pass user data to collect_tb_stats to filter */
-    qht_iter(&tb_ctx.tb_stats, collect_tb_stats, NULL);
-
-    last_search = g_list_sort(last_search, inverse_sort_tbs);
-
-    for (i = last_search; i && count--; i = i->next) {
-        TBStatistics *tbs = (TBStatistics *) i->data;
-        tbs->display_id = id++;
-        dump_tb_header(tbs);
-    }
-
-    /* free the unused bits */
-    i->next->prev = NULL;
-    g_list_free(i->next);
-    i->next = NULL;
-}
-
-static void do_dump_coverset_info_safe(CPUState *cpu, run_on_cpu_data percentage)
-{
-    qemu_log_to_monitor(true);
-    do_dump_coverset_info(percentage.host_int);
-    qemu_log_to_monitor(false);
-}
-
-static void do_dump_tbs_info_safe(CPUState *cpu, run_on_cpu_data count)
-{
-    qemu_log_to_monitor(true);
-    do_dump_tbs_info(count.host_int);
-    qemu_log_to_monitor(false);
-}
-
-/*
- * When we dump_tbs_info on a live system via the HMP we want to
- * ensure the system is quiessent before we start outputting stuff.
- * Otherwise we could pollute the output with other logging output.
- */
-void dump_coverset_info(int percentage, bool use_monitor)
-{
-    if (use_monitor) {
-        async_safe_run_on_cpu(first_cpu, do_dump_coverset_info_safe,
-                              RUN_ON_CPU_HOST_INT(percentage));
-    } else {
-        do_dump_coverset_info(percentage);
-    }
-}
-
-void dump_tbs_info(int count, bool use_monitor)
-{
-    if (use_monitor) {
-        async_safe_run_on_cpu(first_cpu, do_dump_tbs_info_safe,
-                              RUN_ON_CPU_HOST_INT(count));
-    } else {
-        do_dump_tbs_info(count);
-    }
-}
-
-static void do_tb_dump_with_statistics(TBStatistics *tbs, int log_flags)
-{
-    CPUState *cpu = current_cpu;
-    uint32_t cflags = curr_cflags() | CF_NOCACHE;
-    int old_log_flags = qemu_loglevel;
-    TranslationBlock *tb = NULL;
-
-    qemu_set_log(log_flags);
-
-    qemu_log("\n------------------------------\n");
-    dump_tb_header(tbs);
-
-    if (sigsetjmp(cpu->jmp_env, 0) == 0) {
-        mmap_lock();
-        tb = tb_gen_code(cpu, tbs->pc, tbs->cs_base, tbs->flags, cflags);
-        tb_phys_invalidate(tb, -1);
-        mmap_unlock();
-    } else {
-        /*
-         * The mmap_lock is dropped by tb_gen_code if it runs out of
-         * memory.
-         */
-        fprintf(stderr, "%s: dbg failed!\n", __func__);
-        assert_no_pages_locked();
-    }
-
-    qemu_set_log(old_log_flags);
-
-    tcg_tb_remove(tb);
-}
-
-struct tb_dump_info {
-    int id;
-    int log_flags;
-    bool use_monitor;
-};
-
-static void do_dump_tb_info_safe(CPUState *cpu, run_on_cpu_data info)
-{
-    struct tb_dump_info *tbdi = (struct tb_dump_info *) info.host_ptr;
-    GList *iter;
-
-    if (!last_search) {
-        qemu_printf("no search on record");
-        return;
-    }
-    qemu_log_to_monitor(tbdi->use_monitor);
-
-    for (iter = last_search; iter; iter = g_list_next(iter)) {
-        TBStatistics *tbs = iter->data;
-        if (tbs->display_id == tbdi->id) {
-            do_tb_dump_with_statistics(tbs, tbdi->log_flags);
-        }
-    }
-    qemu_log_to_monitor(false);
-    g_free(tbdi);
-}
-
-
-/* XXX: only from monitor? */
-void dump_tb_info(int id, int log_mask, bool use_monitor)
-{
-    struct tb_dump_info *tbdi = g_new(struct tb_dump_info, 1);
-
-    tbdi->id = id;
-    tbdi->log_flags = log_mask;
-    tbdi->use_monitor = use_monitor;
-
-    async_safe_run_on_cpu(first_cpu, do_dump_tb_info_safe,
-                          RUN_ON_CPU_HOST_PTR(tbdi));
-
-    /* tbdi free'd by do_dump_tb_info_safe */
-}
-
 void tb_flush(CPUState *cpu)
 {
     if (tcg_enabled()) {
@@ -1996,7 +1784,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
      *
      * XXX: using loglevel is fugly - we should have a general flag
      */
-    if (qemu_loglevel_mask(CPU_LOG_HOT_TBS)) {
+    if (qemu_loglevel_mask(CPU_LOG_HOT_TBS) && qemu_log_in_addr_range(tb->pc)) {
         tb->tb_stats = tb_get_stats(phys_pc, pc, cs_base, flags);
         /* XXX: should we lock and update in bulk? */
         atomic_inc(&tb->tb_stats->translations.total);
@@ -2076,6 +1864,16 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
     atomic_set(&prof->code_out_len, prof->code_out_len + gen_code_size);
     atomic_set(&prof->search_out_len, prof->search_out_len + search_size);
 #endif
+
+    if (qemu_loglevel_mask(CPU_LOG_HOT_TBS) && tb->tb_stats) {
+        size_t code_size = gen_code_size;
+        if (tcg_ctx->data_gen_ptr) {
+            code_size = tcg_ctx->data_gen_ptr - tb->tc.ptr;
+        } 
+        qemu_log_lock();
+        atomic_set(&tb->tb_stats->code.num_host_inst, get_num_insts(tb->tc.ptr, code_size));
+        qemu_log_unlock();
+    }
 
 #ifdef DEBUG_DISAS
     if (qemu_loglevel_mask(CPU_LOG_TB_OUT_ASM) &&
