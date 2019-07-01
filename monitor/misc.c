@@ -469,15 +469,52 @@ static void hmp_info_jit(Monitor *mon, const QDict *qdict)
     dump_drift_info();
 }
 
-static void hmp_info_tbs(Monitor *mon, const QDict *qdict)
+static void hmp_tbstats_start(Monitor *mon, const QDict *qdict)
 {
-    int n;
+    if (!tcg_enabled()) {
+        error_report("TB information is only available with accel=tcg");
+        return;
+    }
+    if (qemu_loglevel_mask(CPU_LOG_HOT_TBS)) {
+        error_report("TB information already being recorded");
+        return;
+    }
+    qemu_set_log(qemu_loglevel | CPU_LOG_HOT_TBS);
+}
+
+static void hmp_tbstats_stop(Monitor *mon, const QDict *qdict)
+{
     if (!tcg_enabled()) {
         error_report("TB information is only available with accel=tcg");
         return;
     }
     if (!qemu_loglevel_mask(CPU_LOG_HOT_TBS)) {
         error_report("TB information not being recorded");
+        return;
+    }
+    qemu_set_log(qemu_loglevel && ~CPU_LOG_HOT_TBS);
+    clean_tbstats_info();
+}
+
+static void hmp_tbstats_pause(Monitor *mon, const QDict *qdict)
+{
+    if (!tcg_enabled()) {
+        error_report("TB information is only available with accel=tcg");
+        return;
+    }
+    if (!qemu_loglevel_mask(CPU_LOG_HOT_TBS)) {
+        error_report("TB information not being recorded");
+        return;
+    }
+    qemu_set_log(qemu_loglevel && ~CPU_LOG_HOT_TBS);
+    //tb_flush(first_cpu); TODO: should flush current tbs be enought?
+}
+
+static void hmp_info_tbs(Monitor *mon, const QDict *qdict)
+{
+    int n;
+    if (!tcg_enabled()) {
+        error_report("TB information is only available with accel=tcg");
         return;
     }
     n = qdict_get_try_int(qdict, "number", 10);

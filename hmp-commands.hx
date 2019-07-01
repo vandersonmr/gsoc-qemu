@@ -1885,6 +1885,51 @@ Executes a qemu-io command on the given block device.
 ETEXI
 
     {
+        .name       = "start_stats",
+        .args_type  = "",
+        .params     = "",
+        .help       = "(re)start recording tb statistics",
+        .cmd        = hmp_tbstats_start,
+    },
+
+STEXI
+@item start_stats
+@findex 
+(Re)start recording tb statistics
+
+ETEXI
+
+    {
+        .name       = "stop_stats",
+        .args_type  = "",
+        .params     = "",
+        .help       = "reset and stop recording tb statistics",
+        .cmd        = hmp_tbstats_stop,
+    },
+
+STEXI
+@item stop_stats
+@findex 
+Reset and stop recording tb statistics
+
+ETEXI
+
+    {
+        .name       = "pause_stats",
+        .args_type  = "",
+        .params     = "",
+        .help       = "puase recording tb statistics",
+        .cmd        = hmp_tbstats_pause,
+    },
+
+STEXI
+@item stop_stats
+@findex 
+pause recording tb statistics
+
+ETEXI
+
+    {
         .name       = "cpu-add",
         .args_type  = "id:i",
         .params     = "id",

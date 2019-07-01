@@ -396,6 +396,13 @@ void dump_tbs_info(int count, bool use_monitor);
  */
 void dump_tb_info(int id, int log_mask, bool use_monitor);
 
+/**
+ * clean_tbstats_info: remove all tb_stats information
+ *
+ */
+void clean_tbstats_info(void);
+
+
 int cpu_memory_rw_debug(CPUState *cpu, target_ulong addr,
                         uint8_t *buf, target_ulong len, int is_write);
 

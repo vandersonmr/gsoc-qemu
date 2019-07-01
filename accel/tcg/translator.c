@@ -117,7 +117,7 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
     db->tb->size = db->pc_next - db->pc_first;
     db->tb->icount = db->num_insns;
 
-    if (qemu_loglevel_mask(CPU_LOG_HOT_TBS)) {
+    if (qemu_loglevel_mask(CPU_LOG_HOT_TBS) && qemu_log_in_addr_range(tb->pc)) {
         db->tb->tb_stats->code.num_guest_inst = db->num_insns; 
     }
 

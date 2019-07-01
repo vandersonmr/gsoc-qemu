@@ -51,14 +51,16 @@ static void collect_tb_stats(void *p, uint32_t hash, void *userp)
 static void dump_tb_header(TBStatistics *tbs)
 {
     qemu_log("TB%d: phys:0x"TB_PAGE_ADDR_FMT" virt:0x"TARGET_FMT_lx
-             " flags:%#08x (trans:%lu uncached:%lu exec:%lu ints: g:%u op:%u h:%u)\n",
+             " flags:%#08x (trans:%lu uncached:%lu exec:%lu ints: g:%u op:%u h:%u h/g: %f)\n",
              tbs->display_id,
              tbs->phys_pc, tbs->pc, tbs->flags,
              tbs->translations.total, tbs->translations.uncached,
              tbs->executions.total,
              tbs->code.num_guest_inst,
              tbs->code.num_tcg_inst,
-             tbs->code.num_host_inst);
+             tbs->code.num_host_inst,
+             tbs->code.num_guest_inst ? 
+                ((float) tbs->code.num_host_inst / tbs->code.num_guest_inst) : 0);
 }
 
 static void do_dump_coverset_info(int percentage)
@@ -243,4 +245,9 @@ void dump_tb_info(int id, int log_mask, bool use_monitor)
                           RUN_ON_CPU_HOST_PTR(tbdi));
 
     /* tbdi free'd by do_dump_tb_info_safe */
+}
+
+void clean_tbstats_info(void) 
+{
+/* TODO: remove all tb_stats */
 }
