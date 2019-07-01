@@ -513,12 +513,22 @@ static void hmp_tbstats_pause(Monitor *mon, const QDict *qdict)
 static void hmp_info_tbs(Monitor *mon, const QDict *qdict)
 {
     int n;
+    const char *s = NULL;
     if (!tcg_enabled()) {
         error_report("TB information is only available with accel=tcg");
         return;
     }
     n = qdict_get_try_int(qdict, "number", 10);
-    dump_tbs_info(n, SORT_BY_HG, true);
+    s = qdict_get_try_str(qdict, "sortedby");
+
+    int sortedby = 0;
+    if (s == NULL || strcmp(s, "hotness") == 0) {
+        sortedby = SORT_BY_HOTNESS;
+    } else if (strcmp(s, "hg") == 0) {
+        sortedby = SORT_BY_HG;
+    } 
+
+    dump_tbs_info(n, sortedby, true);
 }
 
 static void hmp_info_tb(Monitor *mon, const QDict *qdict)

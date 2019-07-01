@@ -291,9 +291,10 @@ ETEXI
     },
     {
         .name       = "tbs",
-        .args_type  = "number:i?",
-        .params     = "[number]",
-        .help       = "show hottest [number] translated blocks",
+        .args_type  = "number:i?,sortedby:s?",
+        .params     = "[number sortedby]",
+        .help       = "show a [number] translated blocks sorted by [sortedby]"
+                      "sortedby opts: hotness hg",
         .cmd        = hmp_info_tbs,
     },
     {
