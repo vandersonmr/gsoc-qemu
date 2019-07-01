@@ -30,15 +30,6 @@
 
 #include "qemu/qemu-print.h"
 
-static gint inverse_sort_tbs(gconstpointer p1, gconstpointer p2) 
-{
-    const TBStatistics *tbs1 = (TBStatistics *) p1;
-    const TBStatistics *tbs2 = (TBStatistics *) p2;
-    unsigned long c1 = tbs1->executions.total;
-    unsigned long c2 = tbs2->executions.total;
-
-    return c1 < c2 ? 1 : c1 == c2 ? 0 : -1;
-}
 
 /* only accessed in safe work */
 static GList *last_search;
@@ -63,6 +54,34 @@ static void dump_tb_header(TBStatistics *tbs)
                 ((float) tbs->code.num_host_inst / tbs->code.num_guest_inst) : 0);
 }
 
+static gint inverse_sort_tbs(gconstpointer p1, gconstpointer p2, gpointer psort_by) 
+{
+    const TBStatistics *tbs1 = (TBStatistics *) p1;
+    const TBStatistics *tbs2 = (TBStatistics *) p2;
+    int sort_by = *((int *) psort_by);
+    unsigned long c1 = 0; 
+    unsigned long c2 = 0;
+
+    if (likely(sort_by == SORT_BY_HOTNESS)) {
+        c1 = tbs1->executions.total;
+        c2 = tbs2->executions.total;
+    } else if (likely(sort_by == SORT_BY_HG)) {
+        if (tbs1->code.num_guest_inst == 0)
+            return -1;
+        if (tbs2->code.num_guest_inst == 0)
+            return 1;
+
+        float a = (float) tbs1->code.num_host_inst / tbs1->code.num_guest_inst;
+        float b = (float) tbs2->code.num_host_inst / tbs2->code.num_guest_inst;
+        c1 = a <= b ? 0 : 1;
+        c2 = a <= b ? 1 : 0;
+    }
+
+
+    return c1 < c2 ? 1 : c1 == c2 ? 0 : -1;
+}
+
+
 static void do_dump_coverset_info(int percentage)
 {
     uint64_t total_exec_count = 0;
@@ -77,7 +96,7 @@ static void do_dump_coverset_info(int percentage)
     /* XXX: we could pass user data to collect_tb_stats to filter */
     qht_iter(&tb_ctx.tb_stats, collect_tb_stats, NULL);
 
-    last_search = g_list_sort(last_search, inverse_sort_tbs);
+    last_search = g_list_sort_with_data(last_search, inverse_sort_tbs, SORT_BY_HOTNESS);
 
     /* Compute total execution count for all tbs */
     for (i = last_search; i; i = i->next) {
@@ -109,7 +128,8 @@ static void do_dump_coverset_info(int percentage)
     i->next = NULL;
 }
 
-static void do_dump_tbs_info(int count)
+
+static void do_dump_tbs_info(int count, int sort_by)
 {
     int id = 1;
     GList *i;
@@ -120,7 +140,7 @@ static void do_dump_tbs_info(int count)
     /* XXX: we could pass user data to collect_tb_stats to filter */
     qht_iter(&tb_ctx.tb_stats, collect_tb_stats, NULL);
 
-    last_search = g_list_sort(last_search, inverse_sort_tbs);
+    last_search = g_list_sort_with_data(last_search, inverse_sort_tbs, &sort_by);
 
     for (i = last_search; i && count--; i = i->next) {
         TBStatistics *tbs = (TBStatistics *) i->data;
@@ -141,11 +161,18 @@ static void do_dump_coverset_info_safe(CPUState *cpu, run_on_cpu_data percentage
     qemu_log_to_monitor(false);
 }
 
-static void do_dump_tbs_info_safe(CPUState *cpu, run_on_cpu_data count)
+struct tbs_dump_info {
+    int count;
+    int sort_by;
+};
+
+static void do_dump_tbs_info_safe(CPUState *cpu, run_on_cpu_data tbdi)
 {
+    struct tbs_dump_info *info = tbdi.host_ptr; 
     qemu_log_to_monitor(true);
-    do_dump_tbs_info(count.host_int);
+    do_dump_tbs_info(info->count, info->sort_by);
     qemu_log_to_monitor(false);
+    g_free(info);
 }
 
 /*
@@ -163,13 +190,15 @@ void dump_coverset_info(int percentage, bool use_monitor)
     }
 }
 
-void dump_tbs_info(int count, bool use_monitor)
+void dump_tbs_info(int count, int sort_by, bool use_monitor)
 {
     if (use_monitor) {
-        async_safe_run_on_cpu(first_cpu, do_dump_tbs_info_safe,
-                              RUN_ON_CPU_HOST_INT(count));
+        struct tbs_dump_info *tbdi = g_new(struct tbs_dump_info, 1);
+        tbdi->count = count;
+        tbdi->sort_by = sort_by;
+        async_safe_run_on_cpu(first_cpu, do_dump_tbs_info_safe, RUN_ON_CPU_HOST_PTR(tbdi));
     } else {
-        do_dump_tbs_info(count);
+        do_dump_tbs_info(count, sort_by);
     }
 }
 

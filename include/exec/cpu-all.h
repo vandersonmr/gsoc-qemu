@@ -375,15 +375,19 @@ void dump_opcount_info(void);
  */
 void dump_coverset_info(int percentage, bool use_monitor);
 
+#define SORT_BY_HOTNESS 0
+#define SORT_BY_HG 1
+
 /**
  * dump_tbs_info: report the hottest blocks
  *
  * @count: the limit of hotblocks
+ * @sort_by: property in which the dump will be sorted
  * @use_monitor: redirect output to monitor
  *
  * Report the hottest blocks to either the log or monitor
  */
-void dump_tbs_info(int count, bool use_monitor);
+void dump_tbs_info(int count, int sort_by, bool use_monitor);
 
 /**
  * dump_tb_info: dump information about one TB

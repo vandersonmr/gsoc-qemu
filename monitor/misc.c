@@ -518,7 +518,7 @@ static void hmp_info_tbs(Monitor *mon, const QDict *qdict)
         return;
     }
     n = qdict_get_try_int(qdict, "number", 10);
-    dump_tbs_info(n, true);
+    dump_tbs_info(n, SORT_BY_HG, true);
 }
 
 static void hmp_info_tb(Monitor *mon, const QDict *qdict)
