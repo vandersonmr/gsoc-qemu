@@ -149,7 +149,9 @@ static void do_dump_tbs_info(int count, int sort_by)
     }
 
     /* free the unused bits */
-    i->next->prev = NULL;
+    if (i && i->next) {
+        i->next->prev = NULL;
+    }
     g_list_free(i->next);
     i->next = NULL;
 }
@@ -259,7 +261,6 @@ static void do_dump_tb_info_safe(CPUState *cpu, run_on_cpu_data info)
     qemu_log_to_monitor(false);
     g_free(tbdi);
 }
-
 
 /* XXX: only from monitor? */
 void dump_tb_info(int id, int log_mask, bool use_monitor)

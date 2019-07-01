@@ -1138,7 +1138,7 @@ static bool tb_cmp(const void *ap, const void *bp)
  * under one record and ignore the details of page overlap (although
  * we can count it).
  */
-static bool tb_stats_cmp(const void *ap, const void *bp)
+bool tb_stats_cmp(const void *ap, const void *bp)
 {
     const TBStatistics *a = ap;
     const TBStatistics *b = bp;

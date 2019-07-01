@@ -479,6 +479,7 @@ static void hmp_tbstats_start(Monitor *mon, const QDict *qdict)
         error_report("TB information already being recorded");
         return;
     }
+    qht_init(&tb_ctx.tb_stats, tb_stats_cmp, CODE_GEN_HTABLE_SIZE, QHT_MODE_AUTO_RESIZE);
     qemu_set_log(qemu_loglevel | CPU_LOG_HOT_TBS);
 }
 
@@ -506,8 +507,12 @@ static void hmp_tbstats_pause(Monitor *mon, const QDict *qdict)
         error_report("TB information not being recorded");
         return;
     }
+    qemu_log_lock();
     qemu_set_log(qemu_loglevel && ~CPU_LOG_HOT_TBS);
-    //tb_flush(first_cpu); TODO: should flush current tbs be enought?
+    mmap_lock();
+    tb_flush(first_cpu); /* TODO: should flush current tbs be enought? */
+    mmap_unlock();
+    qemu_log_unlock();
 }
 
 static void hmp_info_tbs(Monitor *mon, const QDict *qdict)
@@ -518,6 +523,11 @@ static void hmp_info_tbs(Monitor *mon, const QDict *qdict)
         error_report("TB information is only available with accel=tcg");
         return;
     }
+    if (!tb_ctx.tb_stats.map) {
+        error_report("no TB information recorded");
+        return;
+    }
+
     n = qdict_get_try_int(qdict, "number", 10);
     s = qdict_get_try_str(qdict, "sortedby");
 
