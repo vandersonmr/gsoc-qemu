@@ -100,8 +100,13 @@ static void do_dump_coverset_info(int percentage)
     /* XXX: we could pass user data to collect_tb_stats to filter */
     qht_iter(&tb_ctx.tb_stats, collect_tb_stats, NULL);
 
-    last_search = g_list_sort_with_data(last_search, inverse_sort_tbs,
-                                        SORT_BY_HOTNESS);
+    int sort_by = SORT_BY_HOTNESS;
+    last_search = g_list_sort_with_data(last_search, inverse_sort_tbs, &sort_by);
+
+    if (!last_search) {
+        qemu_log("No data collected yet\n");
+        return;
+    }
 
     /* Compute total execution count for all tbs */
     for (i = last_search; i; i = i->next) {
@@ -144,11 +149,18 @@ static void do_dump_tbs_info(int count, int sort_by)
     g_list_free(last_search);
     last_search = NULL;
 
+
+
     /* XXX: we could pass user data to collect_tb_stats to filter */
     qht_iter(&tb_ctx.tb_stats, collect_tb_stats, NULL);
 
     last_search = g_list_sort_with_data(last_search, inverse_sort_tbs,
                                         &sort_by);
+
+    if (!last_search) {
+        qemu_printf("No data collected yet!\n");
+        return;
+    }
 
     for (i = last_search; i && count--; i = i->next) {
         TBStatistics *tbs = (TBStatistics *) i->data;
