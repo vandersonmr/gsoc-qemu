@@ -9,7 +9,7 @@ static TCGOp *icount_start_insn;
 
 static inline void gen_tb_exec_count(TranslationBlock *tb)
 {
-    if (qemu_loglevel_mask(CPU_LOG_HOT_TBS) && tb->tb_stats) {
+    if (tb_stats_enabled(tb, TB_EXEC_STATS)) {
         TCGv_ptr ptr = tcg_const_ptr(tb->tb_stats);
         gen_helper_inc_exec_freq(ptr);
         tcg_temp_free_ptr(ptr);

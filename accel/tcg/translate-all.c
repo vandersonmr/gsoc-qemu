@@ -1154,7 +1154,7 @@ static void tb_htable_init(void)
     unsigned int mode = QHT_MODE_AUTO_RESIZE;
 
     qht_init(&tb_ctx.htable, tb_cmp, CODE_GEN_HTABLE_SIZE, mode);
-    if (qemu_loglevel_mask(CPU_LOG_HOT_TBS)) {
+    if (tb_stats_collection_enabled()) {
         qht_init(&tb_ctx.tb_stats, tb_stats_cmp, CODE_GEN_HTABLE_SIZE, mode);
     }
 }
@@ -1781,13 +1781,22 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
      * We want to fetch the stats structure before we start code
      * generation so we can count interesting things about this
      * generation.
-     *
-     * XXX: using loglevel is fugly - we should have a general flag
      */
-    if (qemu_loglevel_mask(CPU_LOG_HOT_TBS) && qemu_log_in_addr_range(tb->pc)) {
+    if (tb_stats_collection_enabled()) {
         tb->tb_stats = tb_get_stats(phys_pc, pc, cs_base, flags);
-        /* XXX: should we lock and update in bulk? */
-        atomic_inc(&tb->tb_stats->translations.total);
+
+        if (qemu_log_in_addr_range(tb->pc)) {
+            if (qemu_loglevel_mask(CPU_LOG_HOT_TBS)) {
+                tb->tb_stats->stats_enabled |= TB_EXEC_STATS;
+            }
+        }
+
+        /* XXX: we should have your own -jit hot,translation.. flags */
+        if (qemu_loglevel_mask(CPU_LOG_HOT_TBS)) {
+            tb->tb_stats->stats_enabled |= TB_JIT_STATS;
+            atomic_inc(&tb->tb_stats->translations.total);
+        }
+
     } else {
         tb->tb_stats = NULL;
     }
@@ -1865,7 +1874,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
     atomic_set(&prof->search_out_len, prof->search_out_len + search_size);
 #endif
 
-    if (qemu_loglevel_mask(CPU_LOG_HOT_TBS) && qemu_log_in_addr_range(tb->pc)) {
+    if (tb_stats_enabled(tb, TB_JIT_STATS)) {
         size_t code_size = gen_code_size;
         if (tcg_ctx->data_gen_ptr) {
             code_size = tcg_ctx->data_gen_ptr - tb->tc.ptr;

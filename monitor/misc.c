@@ -475,13 +475,14 @@ static void hmp_tbstats_start(Monitor *mon, const QDict *qdict)
         error_report("TB information is only available with accel=tcg");
         return;
     }
-    if (qemu_loglevel_mask(CPU_LOG_HOT_TBS)) {
+    if (tb_stats_collection_enabled()) {
         error_report("TB information already being recorded");
         return;
     }
     qht_init(&tb_ctx.tb_stats, tb_stats_cmp, CODE_GEN_HTABLE_SIZE,
                 QHT_MODE_AUTO_RESIZE);
     qemu_set_log(qemu_loglevel | CPU_LOG_HOT_TBS);
+    enable_collect_tb_stats();
 }
 
 static void hmp_info_tbs(Monitor *mon, const QDict *qdict)
@@ -538,7 +539,7 @@ static void hmp_info_coverset(Monitor *mon, const QDict *qdict)
         error_report("TB information is only available with accel=tcg");
         return;
     }
-    if (!qemu_loglevel_mask(CPU_LOG_HOT_TBS)) {
+    if (!tb_stats_collection_enabled()) {
         error_report("TB information not being recorded");
         return;
     }

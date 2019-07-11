@@ -4072,7 +4072,7 @@ int tcg_gen_code(TCGContext *s, TranslationBlock *tb)
     atomic_set(&prof->la_time, prof->la_time + profile_getclock());
 #endif
 
-    if (qemu_loglevel_mask(CPU_LOG_HOT_TBS) && qemu_log_in_addr_range(tb->pc)) {
+    if (tb_stats_enabled(tb, TB_JIT_STATS)) {
         int n = 0;
         QTAILQ_FOREACH(op, &s->ops, link) {
             n++;

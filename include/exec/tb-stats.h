@@ -1,12 +1,16 @@
 #ifndef TB_STATS_H
 #define TB_STATS_H
 
-#include "exec/tb-hash.h"
+#include "exec/cpu-common.h"
+#include "exec/tb-context.h"
 
-enum SortBy { SORTBY_HOTNESS, SORTBY_HG /* Host/Guest */, SORTBY_SPILLS}
+enum SortBy { SORT_BY_HOTNESS, SORT_BY_HG /* Host/Guest */, SORT_BY_SPILLS};
 
 #define TB_EXEC_STATS (1 << 0)
 #define TB_JIT_STATS  (1 << 1)
+
+#define tb_stats_enabled(tb, JIT_STATS) \
+    (tb && tb->tb_stats && (tb->tb_stats->stats_enabled & JIT_STATS))
 
 typedef struct TBStatistics TBStatistics;
 
@@ -91,12 +95,5 @@ void dump_tb_info(int id, int log_mask, bool use_monitor);
  *
  */
 void clean_tbstats_info(void);
-
-static inline
-uint32_t tb_stats_hash_func(tb_page_addr_t phys_pc, target_ulong pc,
-                            uint32_t flags)
-{
-    return qemu_xxhash5(phys_pc, pc, flags);
-}
 
 #endif

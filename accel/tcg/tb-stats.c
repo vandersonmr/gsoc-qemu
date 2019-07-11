@@ -1,5 +1,6 @@
 #include "qemu/osdep.h"
 #include "qemu-common.h"
+#include "qemu/log.h"
 
 /* XXX: I'm not sure what includes could be safely removed */
 #define NO_CPU_IO_DEFS
@@ -303,3 +304,5 @@ void clean_tbstats_info(void)
 {
 /* TODO: remove all tb_stats */
 }
+
+

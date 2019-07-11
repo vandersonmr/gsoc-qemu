@@ -313,6 +313,7 @@ int qemu_str_to_log_mask(const char *str)
                 max_num_hot_tbs_to_dump = atoi((*tmp) + 8);
             }
             mask |= CPU_LOG_HOT_TBS;
+            enable_collect_tb_stats();
         } else {
             for (item = qemu_log_items; item->mask != 0; item++) {
                 if (g_str_equal(*tmp, item->name)) {
@@ -345,3 +346,21 @@ void qemu_print_log_usage(FILE *f)
     fprintf(f, "\nUse \"-d trace:help\" to get a list of trace events.\n\n");
 #endif
 }
+
+bool tcg_collect_tb_stats;
+
+void enable_collect_tb_stats(void)
+{
+    tcg_collect_tb_stats = 1;
+}
+
+void disable_collect_tb_stats(void)
+{
+    tcg_collect_tb_stats = 0;
+}
+
+bool tb_stats_collection_enabled(void)
+{
+    return tcg_collect_tb_stats;
+}
+
