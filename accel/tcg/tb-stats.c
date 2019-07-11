@@ -24,15 +24,18 @@ static void dump_tb_header(TBStatistics *tbs)
         tbs->code.num_tcg_ops_opt / tbs->translations.total : 0;
     unsigned h = tbs->translations.total ?
         tbs->code.num_host_inst / tbs->translations.total : 0;
+    unsigned spills = tbs->translations.total ?
+        tbs->code.spills / tbs->translations.total : 0;
 
     float guest_host_prop = g ? ((float) h / g) : 0;
 
     qemu_log("TB%d: phys:0x"TB_PAGE_ADDR_FMT" virt:0x"TARGET_FMT_lx
-             " flags:%#08x (trans:%lu uncached:%lu exec:%lu ints: g:%u op:%u op_opt:%u h:%u h/g: %f)\n",
+             " flags:%#08x (trans:%lu uncached:%lu exec:%lu ints: g:%u op:%u op_opt:%u h:%u h/g:%.2f spills:%d)\n",
              tbs->display_id,
              tbs->phys_pc, tbs->pc, tbs->flags,
              tbs->translations.total, tbs->translations.uncached,
-             tbs->executions.total, g, ops, ops_opt, h, guest_host_prop);
+             tbs->executions.total, g, ops, ops_opt, h, guest_host_prop,
+             spills);
 }
 
 static gint
@@ -44,7 +47,10 @@ inverse_sort_tbs(gconstpointer p1, gconstpointer p2, gpointer psort_by)
     unsigned long c1 = 0;
     unsigned long c2 = 0;
 
-    if (likely(sort_by == SORT_BY_HOTNESS)) {
+    if (likely(sort_by == SORT_BY_SPILLS)) {
+        c1 = tbs1->code.spills;
+        c2 = tbs2->code.spills;
+    } else if (likely(sort_by == SORT_BY_HOTNESS)) {
         c1 = tbs1->executions.total;
         c2 = tbs2->executions.total;
     } else if (likely(sort_by == SORT_BY_HG)) {

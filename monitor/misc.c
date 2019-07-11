@@ -506,6 +506,8 @@ static void hmp_info_tbs(Monitor *mon, const QDict *qdict)
         sortedby = SORT_BY_HOTNESS;
     } else if (strcmp(s, "hg") == 0) {
         sortedby = SORT_BY_HG;
+    } else if (strcmp(s, "spills") == 0) {
+        sortedby = SORT_BY_SPILLS;
     }
 
     dump_tbs_info(n, sortedby, true);

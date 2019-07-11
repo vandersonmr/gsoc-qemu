@@ -3115,6 +3115,11 @@ static void temp_sync(TCGContext *s, TCGTemp *ts, TCGRegSet allocated_regs,
         case TEMP_VAL_REG:
             tcg_out_st(s, ts->type, ts->reg,
                        ts->mem_base->reg, ts->mem_offset);
+
+            /* Count number of spills */
+            if (tb_stats_enabled(s->current_tb, TB_JIT_STATS)) {
+                atomic_inc(&s->current_tb->tb_stats->code.spills);
+            }
             break;
 
         case TEMP_VAL_MEM:
@@ -3985,6 +3990,8 @@ int tcg_gen_code(TCGContext *s, TranslationBlock *tb)
 #endif
     int i, num_insns;
     TCGOp *op;
+
+    s->current_tb = tb;
 
 #ifdef CONFIG_PROFILER
     {

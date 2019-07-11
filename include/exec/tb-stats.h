@@ -1,4 +1,5 @@
 #ifndef TB_STATS_H
+
 #define TB_STATS_H
 
 #include "exec/cpu-common.h"
@@ -50,6 +51,7 @@ struct TBStatistics {
         unsigned num_host_inst;
         unsigned num_tcg_ops;
         unsigned num_tcg_ops_opt;
+        unsigned spills;
     } code;
 
     /* HMP information - used for referring to previous search */
