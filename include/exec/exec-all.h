@@ -22,20 +22,10 @@
 
 #include "exec/tb-context.h"
 #include "sysemu/cpus.h"
+#include "exec/tb-stats.h"
 
 /* allow to see translation results - the slowdown should be negligible, so we leave it */
 #define DEBUG_DISAS
-
-/* Page tracking code uses ram addresses in system mode, and virtual
-   addresses in userspace mode.  Define tb_page_addr_t to be an appropriate
-   type.  */
-#if defined(CONFIG_USER_ONLY)
-typedef abi_ulong tb_page_addr_t;
-#define TB_PAGE_ADDR_FMT TARGET_ABI_FMT_lx
-#else
-typedef ram_addr_t tb_page_addr_t;
-#define TB_PAGE_ADDR_FMT RAM_ADDR_FMT
-#endif
 
 #include "qemu/log.h"
 
@@ -323,49 +313,6 @@ static inline void tlb_flush_by_mmuidx_all_cpus_synced(CPUState *cpu,
 #else
 #define CODE_GEN_AVG_BLOCK_SIZE 150
 #endif
-
-typedef struct TBStatistics TBStatistics;
-
-/*
- * This struct stores statistics such as execution count of the
- * TranslationBlocks. Each sets of TBs for a given phys_pc/pc/flags
- * has its own TBStatistics which will persist over tb_flush.
- *
- * We include additional counters to track number of translations as
- * well as variants for compile flags.
- */
-struct TBStatistics {
-    tb_page_addr_t phys_pc;
-    target_ulong pc;
-    uint32_t     flags;
-    /* cs_base isn't included in the hash but we do check for matches */
-    target_ulong cs_base;
-
-    /* Translation stats */
-    struct {
-        unsigned long total;
-        unsigned long uncached;
-        unsigned long spanning;
-        /* XXX: count invalidation? */
-    } translations;
-
-    /* Execution stats */
-    struct {
-        unsigned long total;
-        unsigned long atomic;
-    } executions;
-
-    struct {
-        unsigned num_guest_inst;
-        unsigned num_host_inst;
-        unsigned num_tcg_inst;
-    } code;
-
-    /* HMP information - used for referring to previous search */
-    int display_id;
-};
-
-bool tb_stats_cmp(const void *ap, const void *bp);
 
 /*
  * Translation Cache-related fields of a TB.
