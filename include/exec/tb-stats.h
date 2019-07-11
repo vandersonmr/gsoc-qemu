@@ -48,7 +48,8 @@ struct TBStatistics {
     struct {
         unsigned num_guest_inst;
         unsigned num_host_inst;
-        unsigned num_tcg_inst;
+        unsigned num_tcg_ops;
+        unsigned num_tcg_ops_opt;
     } code;
 
     /* HMP information - used for referring to previous search */

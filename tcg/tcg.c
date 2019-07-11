@@ -4006,6 +4006,14 @@ int tcg_gen_code(TCGContext *s, TranslationBlock *tb)
     }
 #endif
 
+    if (tb_stats_enabled(tb, TB_JIT_STATS)) {
+        int n = 0;
+        QTAILQ_FOREACH(op, &s->ops, link) {
+            n++;
+        }
+        atomic_add(&tb->tb_stats->code.num_tcg_ops, n);
+    }
+
 #ifdef DEBUG_DISAS
     if (unlikely(qemu_loglevel_mask(CPU_LOG_TB_OP)
                  && qemu_log_in_addr_range(tb->pc))) {
@@ -4077,7 +4085,7 @@ int tcg_gen_code(TCGContext *s, TranslationBlock *tb)
         QTAILQ_FOREACH(op, &s->ops, link) {
             n++;
         }
-        tb->tb_stats->code.num_tcg_inst = n;
+        atomic_add(&tb->tb_stats->code.num_tcg_ops_opt, n);
     }
 
 #ifdef DEBUG_DISAS

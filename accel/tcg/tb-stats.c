@@ -1,36 +1,10 @@
 #include "qemu/osdep.h"
-#include "qemu-common.h"
-#include "qemu/log.h"
 
-/* XXX: I'm not sure what includes could be safely removed */
-#define NO_CPU_IO_DEFS
-#include "cpu.h"
-#include "trace.h"
 #include "disas/disas.h"
 #include "exec/exec-all.h"
 #include "tcg.h"
-#if defined(CONFIG_USER_ONLY)
-#include "qemu.h"
-#if defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
-#include <sys/param.h>
-#if __FreeBSD_version >= 700104
-#define HAVE_KINFO_GETVMMAP
-#define sigqueue sigqueue_freebsd  /* avoid redefinition */
-#include <sys/proc.h>
-#include <machine/profile.h>
-#define _KERNEL
-#include <sys/user.h>
-#undef _KERNEL
-#undef sigqueue
-#include <libutil.h>
-#endif
-#endif
-#else
-#include "exec/ram_addr.h"
-#endif
 
 #include "qemu/qemu-print.h"
-
 
 /* only accessed in safe work */
 static GList *last_search;
@@ -42,18 +16,23 @@ static void collect_tb_stats(void *p, uint32_t hash, void *userp)
 
 static void dump_tb_header(TBStatistics *tbs)
 {
+    unsigned g = tbs->translations.total ?
+        tbs->code.num_guest_inst / tbs->translations.total : 0;
+    unsigned ops = tbs->translations.total ?
+        tbs->code.num_tcg_ops / tbs->translations.total : 0;
+    unsigned ops_opt = tbs->translations.total ?
+        tbs->code.num_tcg_ops_opt / tbs->translations.total : 0;
+    unsigned h = tbs->translations.total ?
+        tbs->code.num_host_inst / tbs->translations.total : 0;
+
+    float guest_host_prop = g ? ((float) h / g) : 0;
+
     qemu_log("TB%d: phys:0x"TB_PAGE_ADDR_FMT" virt:0x"TARGET_FMT_lx
-             " flags:%#08x (trans:%lu uncached:%lu exec:%lu ints: g:%u op:%u h:%u h/g: %f)\n",
+             " flags:%#08x (trans:%lu uncached:%lu exec:%lu ints: g:%u op:%u op_opt:%u h:%u h/g: %f)\n",
              tbs->display_id,
              tbs->phys_pc, tbs->pc, tbs->flags,
              tbs->translations.total, tbs->translations.uncached,
-             tbs->executions.total,
-             tbs->code.num_guest_inst,
-             tbs->code.num_tcg_inst,
-             tbs->code.num_host_inst,
-             tbs->code.num_guest_inst ?
-                ((float) tbs->code.num_host_inst / tbs->code.num_guest_inst) :
-                0);
+             tbs->executions.total, g, ops, ops_opt, h, guest_host_prop);
 }
 
 static gint

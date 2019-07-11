@@ -118,7 +118,7 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
     db->tb->icount = db->num_insns;
 
     if (tb_stats_enabled(tb, TB_JIT_STATS)) {
-        db->tb->tb_stats->code.num_guest_inst = db->num_insns;
+        atomic_add(&db->tb->tb_stats->code.num_guest_inst, db->num_insns);
     }
 
 #ifdef DEBUG_DISAS
