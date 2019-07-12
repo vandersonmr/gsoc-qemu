@@ -37,7 +37,6 @@ struct TBStatistics {
         unsigned long total;
         unsigned long uncached;
         unsigned long spanning;
-        /* XXX: count invalidation? */
     } translations;
 
     /* Execution stats */
@@ -52,6 +51,13 @@ struct TBStatistics {
         unsigned num_tcg_ops;
         unsigned num_tcg_ops_opt;
         unsigned spills;
+
+        /* CONFIG_PROFILE */
+        unsigned temps;
+        unsigned deleted_ops;
+        unsigned in_len;
+        unsigned out_len;
+        unsigned search_out_len;
     } code;
 
     /* HMP information - used for referring to previous search */
@@ -98,5 +104,7 @@ void dump_tb_info(int id, int log_mask, bool use_monitor);
  *
  */
 void clean_tbstats_info(void);
+
+void dump_jit_profile_info(void);
 
 #endif

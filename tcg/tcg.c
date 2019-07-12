@@ -2284,9 +2284,13 @@ void tcg_op_remove(TCGContext *s, TCGOp *op)
     QTAILQ_INSERT_TAIL(&s->free_ops, op, link);
     s->nb_ops--;
 
-#ifdef CONFIG_PROFILER
-    atomic_set(&s->prof.del_op_count, s->prof.del_op_count + 1);
-#endif
+    #ifdef CONFIG_PROFILER
+        atomic_set(&s->prof.del_op_count, s->prof.del_op_count + 1);
+    #endif
+
+    if (tb_stats_enabled(s->current_tb, TB_JIT_STATS)) {
+        atomic_inc(&s->current_tb->tb_stats->code.deleted_ops);
+    }
 }
 
 static TCGOp *tcg_op_alloc(TCGOpcode opc)
@@ -4019,6 +4023,9 @@ int tcg_gen_code(TCGContext *s, TranslationBlock *tb)
             n++;
         }
         atomic_add(&tb->tb_stats->code.num_tcg_ops, n);
+
+        n = s->nb_temps;
+        atomic_add(&tb->tb_stats->code.temps, n);
     }
 
 #ifdef DEBUG_DISAS

@@ -67,7 +67,6 @@ inverse_sort_tbs(gconstpointer p1, gconstpointer p2, gpointer psort_by)
         c2 = a <= b ? 1 : 0;
     }
 
-
     return c1 < c2 ? 1 : c1 == c2 ? 0 : -1;
 }
 
@@ -97,12 +96,12 @@ static void do_dump_coverset_info(int percentage)
     /* Compute total execution count for all tbs */
     for (i = last_search; i; i = i->next) {
         TBStatistics *tbs = (TBStatistics *) i->data;
-        total_exec_count += tbs->executions.total;
+        total_exec_count += tbs->executions.total * tbs->code.num_guest_inst;
     }
 
     for (i = last_search; i; i = i->next) {
         TBStatistics *tbs = (TBStatistics *) i->data;
-        covered_exec_count += tbs->executions.total;
+        covered_exec_count += tbs->executions.total * tbs->code.num_guest_inst;
         tbs->display_id = id++;
         coverset_size++;
         dump_tb_header(tbs);
@@ -115,9 +114,9 @@ static void do_dump_coverset_info(int percentage)
     }
 
     qemu_log("\n------------------------------\n");
-    qemu_log("# of TBs to reach %d%% of the total exec count: %u\t",
+    qemu_log("# of TBs to reach %d%% of the total of guest insts exec: %u\t",
                 percentage, coverset_size);
-    qemu_log("Total exec count: %lu\n", total_exec_count);
+    qemu_log("Total of guest insts exec: %lu\n", total_exec_count);
     qemu_log("\n------------------------------\n");
 
     /* free the unused bits */
@@ -134,8 +133,6 @@ static void do_dump_tbs_info(int count, int sort_by)
 
     g_list_free(last_search);
     last_search = NULL;
-
-
 
     /* XXX: we could pass user data to collect_tb_stats to filter */
     qht_iter(&tb_ctx.tb_stats, collect_tb_stats, NULL);
@@ -283,6 +280,69 @@ void dump_tb_info(int id, int log_mask, bool use_monitor)
                           RUN_ON_CPU_HOST_PTR(tbdi));
 
     /* tbdi free'd by do_dump_tb_info_safe */
+}
+
+struct jit_profile_info {
+    uint64_t translations;
+    uint64_t aborted;
+    uint64_t ops;
+    unsigned ops_max;
+    uint64_t del_ops;
+    uint64_t temps;
+    unsigned temps_max;
+    uint64_t host;
+    uint64_t host_ins;
+    uint64_t search_data;
+};
+
+static void collect_jit_profile_info(void *p, uint32_t hash, void *userp)
+{
+    struct jit_profile_info *jpi = userp;
+    TBStatistics *tbs = p;
+
+    /* TODO: abort */
+    jpi->translations += tbs->translations.total;
+    jpi->ops += tbs->code.num_tcg_ops;
+    if (tbs->translations.total && tbs->code.num_tcg_ops / tbs->translations.total
+            > jpi->ops_max) {
+        jpi->ops_max = tbs->code.num_tcg_ops / tbs->translations.total;
+    }
+    jpi->del_ops += tbs->code.deleted_ops;
+    jpi->temps += tbs->code.temps;
+    if (tbs->translations.total && tbs->code.temps / tbs->translations.total >
+            jpi->temps_max) {
+        jpi->temps_max = tbs->code.temps / tbs->translations.total;
+    }
+    jpi->host += tbs->code.out_len;
+    jpi->host_ins += tbs->code.num_host_inst;
+    jpi->search_data += tbs->code.search_out_len;
+}
+
+void dump_jit_profile_info(void)
+{
+    if (!tb_stats_collection_enabled()) {
+        return;
+    }
+
+    struct jit_profile_info *jpi = g_new0(struct jit_profile_info, 1);
+
+    qht_iter(&tb_ctx.tb_stats, collect_jit_profile_info, jpi);
+
+    if (jpi->translations) {
+        qemu_printf("translated TBs      %" PRId64 "\n", jpi->translations);
+        qemu_printf("avg ops/TB          %0.1f max=%d\n",
+                jpi->ops / (double) jpi->translations, jpi->ops_max);
+        qemu_printf("deleted ops/TB      %0.2f\n",
+                jpi->del_ops / (double) jpi->translations);
+        qemu_printf("avg temps/TB        %0.2f max=%d\n",
+                jpi->temps / (double) jpi->translations, jpi->temps_max);
+        qemu_printf("avg host code/TB    %0.1f\n",
+                jpi->host / (double) jpi->translations);
+        qemu_printf("avg host ins/TB     %0.1f\n",
+                jpi->host_ins / (double) jpi->translations);
+        qemu_printf("avg search data/TB  %0.1f\n",
+                jpi->search_data / (double) jpi->translations);
+    }
 }
 
 void clean_tbstats_info(void)
