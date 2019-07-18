@@ -120,11 +120,14 @@ static void do_dump_coverset_info(int percentage)
     qemu_log("\n------------------------------\n");
 
     /* free the unused bits */
-    i->next->prev = NULL;
-    g_list_free(i->next);
-    i->next = NULL;
+    if (i) {
+        if (i->next) {
+            i->next->prev = NULL;
+        }
+        g_list_free(i->next);
+        i->next = NULL;
+    }
 }
-
 
 static void do_dump_tbs_info(int count, int sort_by)
 {
@@ -152,11 +155,13 @@ static void do_dump_tbs_info(int count, int sort_by)
     }
 
     /* free the unused bits */
-    if (i && i->next) {
-        i->next->prev = NULL;
+    if (i) {
+        if (i->next) {
+            i->next->prev = NULL;
+        }
+        g_list_free(i->next);
+        i->next = NULL;
     }
-    g_list_free(i->next);
-    i->next = NULL;
 }
 
 static void
@@ -345,9 +350,31 @@ void dump_jit_profile_info(void)
     }
 }
 
-void clean_tbstats_info(void)
+static void dessaloc_tbstats(void *p, uint32_t hash, void *userp)
 {
-/* TODO: remove all tb_stats */
+    g_free(p);
 }
 
+void clean_tbstats(void)
+{
+    mmap_lock();
+    /* remove all tb_stats */
+    qht_iter(&tb_ctx.tb_stats, dessaloc_tbstats, NULL);
+    qht_destroy(&tb_ctx.tb_stats);
+    mmap_lock();
+}
 
+static void reset_tbstats_flag(void *p, uint32_t hash, void *userp)
+{
+    uint32_t flag = *((int *)userp);
+    TBStatistics *tbs = p;
+    tbs->stats_enabled = flag;
+}
+
+void set_tbstats_flags(uint32_t flag)
+{
+    mmap_lock();
+    /* iterate over tbstats setting their flag as TB_NOTHING */
+    qht_iter(&tb_ctx.tb_stats, reset_tbstats_flag, &flag);
+    mmap_lock();
+}

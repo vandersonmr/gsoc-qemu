@@ -1888,15 +1888,15 @@ Executes a qemu-io command on the given block device.
 ETEXI
 
     {
-        .name       = "start_stats",
-        .args_type  = "",
-        .params     = "",
-        .help       = "(re)start recording tb statistics",
-        .cmd        = hmp_tbstats_start,
+        .name       = "tb_stats",
+        .args_type  = "command:s",
+        .params     = "command",
+        .help       = "Control tb statistics collection",
+        .cmd        = hmp_tbstats,
     },
 
 STEXI
-@item start_stats
+@item tb_stats
 @findex
 (Re)start recording tb statistics
 

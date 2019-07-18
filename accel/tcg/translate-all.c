@@ -1791,7 +1791,6 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
             }
         }
 
-        /* XXX: we should have your own -jit hot,translation.. flags */
         if (qemu_loglevel_mask(CPU_LOG_HOT_TBS)) {
             tb->tb_stats->stats_enabled |= TB_JIT_STATS;
             atomic_inc(&tb->tb_stats->translations.total);
