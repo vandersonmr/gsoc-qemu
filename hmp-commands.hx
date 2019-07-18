@@ -1889,9 +1889,10 @@ ETEXI
 
     {
         .name       = "tb_stats",
-        .args_type  = "command:s",
-        .params     = "command",
-        .help       = "Control tb statistics collection",
+        .args_type  = "command:s,level:s?",
+        .params     = "command [stats_level]",
+        .help       = "Control tb statistics collection:"
+                        "tb_stats (start|pause|stop|filter) [all|jit_stats|exec_stats]",
         .cmd        = hmp_tbstats,
     },
 

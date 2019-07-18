@@ -313,6 +313,7 @@ int qemu_str_to_log_mask(const char *str)
                 max_num_hot_tbs_to_dump = atoi((*tmp) + 8);
             }
             mask |= CPU_LOG_HOT_TBS;
+            set_default_tbstats_flag(TB_JIT_STATS | TB_EXEC_STATS);
             enable_collect_tb_stats();
         } else {
             for (item = qemu_log_items; item->mask != 0; item++) {
@@ -372,4 +373,16 @@ bool tb_stats_collection_enabled(void)
 bool tb_stats_collection_paused(void)
 {
     return tcg_collect_tb_stats == 2;
+}
+
+uint32_t default_tbstats_flag;
+
+void set_default_tbstats_flag(uint32_t flag)
+{
+    default_tbstats_flag = flag;
+}
+
+uint32_t get_default_tbstats_flag(void)
+{
+    return default_tbstats_flag;
 }

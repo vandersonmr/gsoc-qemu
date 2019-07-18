@@ -70,7 +70,6 @@ inverse_sort_tbs(gconstpointer p1, gconstpointer p2, gpointer psort_by)
     return c1 < c2 ? 1 : c1 == c2 ? 0 : -1;
 }
 
-
 static void do_dump_coverset_info(int percentage)
 {
     uint64_t total_exec_count = 0;
@@ -266,6 +265,7 @@ static void do_dump_tb_info_safe(CPUState *cpu, run_on_cpu_data info)
         TBStatistics *tbs = iter->data;
         if (tbs->display_id == tbdi->id) {
             do_tb_dump_with_statistics(tbs, tbdi->log_flags);
+            break;
         }
     }
     qemu_log_to_monitor(false);
@@ -357,11 +357,9 @@ static void dessaloc_tbstats(void *p, uint32_t hash, void *userp)
 
 void clean_tbstats(void)
 {
-    mmap_lock();
     /* remove all tb_stats */
     qht_iter(&tb_ctx.tb_stats, dessaloc_tbstats, NULL);
     qht_destroy(&tb_ctx.tb_stats);
-    mmap_lock();
 }
 
 static void reset_tbstats_flag(void *p, uint32_t hash, void *userp)
@@ -373,8 +371,86 @@ static void reset_tbstats_flag(void *p, uint32_t hash, void *userp)
 
 void set_tbstats_flags(uint32_t flag)
 {
-    mmap_lock();
     /* iterate over tbstats setting their flag as TB_NOTHING */
     qht_iter(&tb_ctx.tb_stats, reset_tbstats_flag, &flag);
+}
+
+void do_hmp_tbstats_safe(CPUState *cpu, run_on_cpu_data icmd)
+{
+    struct TbstatsCommand *cmdinfo = icmd.host_ptr;
+    int cmd = cmdinfo->cmd;
+    uint32_t level = cmdinfo->level;
+
+    /* for safe, always pause TB generation while running this commands */
     mmap_lock();
+
+    switch (cmd) {
+    case START:
+        if (tb_stats_collection_paused()) {
+            set_tbstats_flags(level);
+        } else {
+            if (tb_stats_collection_enabled()) {
+                qemu_printf("TB information already being recorded");
+                return;
+            }
+            qht_init(&tb_ctx.tb_stats, tb_stats_cmp, CODE_GEN_HTABLE_SIZE,
+                        QHT_MODE_AUTO_RESIZE);
+        }
+
+        set_default_tbstats_flag(level);
+        enable_collect_tb_stats();
+        tb_flush(cpu);
+        break;
+    case PAUSE:
+        if (!tb_stats_collection_enabled()) {
+            qemu_printf("TB information not being recorded");
+            return;
+        }
+
+        /* Continue to create TBStatistic structures but stop collecting statistics */
+        pause_collect_tb_stats();
+        tb_flush(cpu);
+        set_default_tbstats_flag(TB_NOTHING);
+        set_tbstats_flags(TB_PAUSED);
+        break;
+    case STOP:
+        if (!tb_stats_collection_enabled()) {
+            qemu_printf("TB information not being recorded");
+            return;
+        }
+
+        /* Dissalloc all TBStatistics structures and stop creating new ones */
+        disable_collect_tb_stats();
+        tb_flush(cpu);
+        clean_tbstats();
+        break;
+    case FILTER:
+        if (!tb_stats_collection_enabled()) {
+            qemu_printf("TB information not being recorded");
+            return;
+        }
+        if (!last_search) {
+            qemu_printf("no search on record! execute info tbs before filtering!");
+            return;
+        }
+
+        tb_flush(cpu);
+        set_default_tbstats_flag(TB_NOTHING);
+
+        /* Set all tbstats as paused, then return only the ones from last_search */
+        pause_collect_tb_stats();
+        set_tbstats_flags(TB_PAUSED);
+
+        for (GList *iter = last_search; iter; iter = g_list_next(iter)) {
+            TBStatistics *tbs = iter->data;
+            tbs->stats_enabled = level;
+        }
+
+        break;
+    default: /* INVALID */
+        break;
+    }
+
+    mmap_unlock();
+    g_free(cmdinfo);
 }

@@ -1784,18 +1784,18 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
      */
     if (tb_stats_collection_enabled()) {
         tb->tb_stats = tb_get_stats(phys_pc, pc, cs_base, flags);
+        uint32_t flag = get_default_tbstats_flag();
 
         if (qemu_log_in_addr_range(tb->pc)) {
-            if (qemu_loglevel_mask(CPU_LOG_HOT_TBS)) {
+            if (flag & TB_EXEC_STATS) {
                 tb->tb_stats->stats_enabled |= TB_EXEC_STATS;
             }
         }
 
-        if (qemu_loglevel_mask(CPU_LOG_HOT_TBS)) {
+        if (flag & TB_JIT_STATS) {
             tb->tb_stats->stats_enabled |= TB_JIT_STATS;
             atomic_inc(&tb->tb_stats->translations.total);
         }
-
     } else {
         tb->tb_stats = NULL;
     }

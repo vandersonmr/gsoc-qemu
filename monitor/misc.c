@@ -470,54 +470,6 @@ static void hmp_info_jit(Monitor *mon, const QDict *qdict)
     dump_drift_info();
 }
 
-static void do_hmp_tbstats_safe(CPUState *cpu, run_on_cpu_data str)
-{
-    int cmd = str.host_int;
-    switch (cmd) {
-    case 0: /* START */
-        if (tb_stats_collection_paused()) {
-            set_tbstats_flags(TB_JIT_STATS | TB_EXEC_STATS);
-        } else {
-            if (tb_stats_collection_enabled()) {
-                error_report("TB information already being recorded");
-                return;
-            }
-            qht_init(&tb_ctx.tb_stats, tb_stats_cmp, CODE_GEN_HTABLE_SIZE,
-                        QHT_MODE_AUTO_RESIZE);
-        }
-
-        qemu_set_log(qemu_loglevel | CPU_LOG_HOT_TBS);
-        enable_collect_tb_stats();
-        tb_flush(cpu);
-        break;
-    case 1: /* PAUSE */
-        if (!tb_stats_collection_enabled()) {
-            error_report("TB information not being recorded");
-            return;
-        }
-
-        /* Continue to create TBStatistic structures but stop collecting statistics */
-        pause_collect_tb_stats();
-        tb_flush(cpu);
-        qemu_set_log(qemu_loglevel & !CPU_LOG_HOT_TBS);
-        set_tbstats_flags(TB_PAUSED);
-        break;
-    case 2: /* STOP */
-        if (!tb_stats_collection_enabled()) {
-            error_report("TB information not being recorded");
-            return;
-        }
-
-        /* Dissalloc all TBStatistics structures and stop creating new ones */
-        disable_collect_tb_stats();
-        tb_flush(cpu);
-        qemu_set_log(qemu_loglevel & !CPU_LOG_HOT_TBS);
-        clean_tbstats();
-        break;
-    case -1: /* INVALID */
-        break;
-    }
-}
 
 static void hmp_tbstats(Monitor *mon, const QDict *qdict)
 {
@@ -527,20 +479,35 @@ static void hmp_tbstats(Monitor *mon, const QDict *qdict)
     }
 
     char *cmd = (char *) qdict_get_try_str(qdict, "command");
-    int icmd = -1;
+    enum TbstatsCmd icmd = -1;
 
     if (strcmp(cmd, "start") == 0) {
-        icmd = 0;
+        icmd = START;
     } else if (strcmp(cmd, "pause") == 0) {
-        icmd = 1;
+        icmd = PAUSE;
     } else if (strcmp(cmd, "stop") == 0) {
-        icmd = 2;
+        icmd = STOP;
+    } else if (strcmp(cmd, "filter") == 0) {
+        icmd = FILTER;
     } else {
         error_report("invalid command!");
     }
 
+    char *slevel = (char *) qdict_get_try_str(qdict, "level");
+    uint32_t level = TB_EXEC_STATS | TB_JIT_STATS;
+    if (slevel) {
+        if (strcmp(slevel, "jit_stats") == 0) {
+            level = TB_JIT_STATS;
+        } else if (strcmp(slevel, "exec_stats") == 0) {
+            level = TB_EXEC_STATS;
+        }
+    }
+
+    struct TbstatsCommand *tbscommand = g_new0(struct TbstatsCommand, 1);
+    tbscommand->cmd = icmd;
+    tbscommand->level = level;
     async_safe_run_on_cpu(first_cpu, do_hmp_tbstats_safe,
-                                RUN_ON_CPU_HOST_INT(icmd));
+                          RUN_ON_CPU_HOST_PTR(tbscommand));
 }
 
 static void hmp_info_tbs(Monitor *mon, const QDict *qdict)
