@@ -1886,7 +1886,7 @@ STEXI
 Executes a qemu-io command on the given block device.
 
 ETEXI
-
+#if defined(CONFIG_TCG)
     {
         .name       = "tb_stats",
         .args_type  = "command:s,level:s?",
@@ -1895,11 +1895,12 @@ ETEXI
                         "tb_stats (start|pause|stop|filter) [all|jit_stats|exec_stats]",
         .cmd        = hmp_tbstats,
     },
+#endif
 
 STEXI
 @item tb_stats
 @findex
-(Re)start recording tb statistics
+Control recording tb statistics
 
 ETEXI
 
