@@ -466,7 +466,6 @@ static void hmp_info_jit(Monitor *mon, const QDict *qdict)
     }
 
     dump_exec_info();
-    dump_jit_profile_info();
     dump_drift_info();
 }
 

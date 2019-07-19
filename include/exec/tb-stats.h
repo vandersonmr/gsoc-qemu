@@ -4,6 +4,7 @@
 
 #include "exec/cpu-common.h"
 #include "exec/tb-context.h"
+#include "tcg.h"
 
 enum SortBy { SORT_BY_HOTNESS, SORT_BY_HG /* Host/Guest */, SORT_BY_SPILLS };
 enum TbstatsCmd { START, PAUSE, STOP, FILTER };
@@ -104,7 +105,7 @@ void dump_tb_info(int id, int log_mask, bool use_monitor);
 void set_tbstats_flags(uint32_t flags);
 void clean_tbstats(void);
 
-void dump_jit_profile_info(void);
+void dump_jit_profile_info(TCGProfile *s);
 
 struct TbstatsCommand {
     enum TbstatsCmd cmd;
