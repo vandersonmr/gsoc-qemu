@@ -305,6 +305,13 @@ ETEXI
         .cmd        = hmp_info_tb,
     },
     {
+        .name       = "cfg",
+        .args_type  = "id:i,depth:i?",
+        .params     = "id [depth]",
+        .help       = "plot CFG around TB with the given id",
+        .cmd        = hmp_info_cfg,
+    },
+    {
         .name       = "coverset",
         .args_type  = "number:i?",
         .params     = "[number]",

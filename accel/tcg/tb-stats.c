@@ -8,6 +8,33 @@
 
 /* only accessed in safe work */
 static GList *last_search;
+int id = 1; /* display_id increment counter */
+
+static TBStatistics *get_tbstats_by_id(int id)
+{
+    GList *iter;
+    for (iter = last_search; iter; iter = g_list_next(iter)) {
+        TBStatistics *tbs = iter->data;
+        if (tbs && tbs->display_id == id) {
+            return tbs;
+            break;
+        }
+    }
+    return NULL;
+}
+
+static TBStatistics *get_tbstats_by_addr(target_ulong pc)
+{
+    GList *iter;
+    for (iter = last_search; iter; iter = g_list_next(iter)) {
+        TBStatistics *tbs = iter->data;
+        if (tbs && tbs->pc == pc) {
+            return tbs;
+            break;
+        }
+    }
+    return NULL;
+}
 
 struct jit_profile_info {
     uint64_t translations;
@@ -222,9 +249,32 @@ static void dump_tb_targets(TBStatistics *tbs)
     if (tbs && tbs->tb) {
         uintptr_t dst1 = atomic_read(tbs->tb->jmp_dest);
         uintptr_t dst2 = atomic_read(tbs->tb->jmp_dest + 1);
-        qemu_log("TB Targets: (0x"TARGET_FMT_lx", 0x"TARGET_FMT_lx")\n",
-                dst1 > 1 ? ((TranslationBlock *) dst1)->pc : 0,
-                dst2 > 1 ? ((TranslationBlock *) dst2)->pc : 0);
+        TranslationBlock* tb_dst1 = dst1 > 1 ? (TranslationBlock *) dst1 : 0;
+        TranslationBlock* tb_dst2 = dst2 > 1 ? (TranslationBlock *) dst2 : 0;
+        target_ulong pc1 = tb_dst1 ? tb_dst1->pc : 0;
+        target_ulong pc2 = tb_dst2 ? tb_dst2->pc : 0;
+
+        /* if there is no display id from the last_search, then create one */
+        TBStatistics *tbstats_pc1 = get_tbstats_by_addr(pc1);
+        TBStatistics *tbstats_pc2 = get_tbstats_by_addr(pc2);
+        int displayid1 = 0;
+        int displayid2 = 0;
+
+        if (!tbstats_pc1 && tb_dst1 && tb_dst1->tb_stats) {
+            tb_dst1->tb_stats->display_id = id;
+            last_search = g_list_append(last_search, tb_dst1->tb_stats);
+            displayid1 = id++;
+        }
+
+        if (!tbstats_pc2 && tb_dst2 && tb_dst2->tb_stats) {
+            tb_dst2->tb_stats->display_id = id;
+            last_search = g_list_append(last_search, tb_dst2->tb_stats);
+            displayid2 = id++;
+        }
+
+        qemu_log("TB Targets: (0x"TARGET_FMT_lx" (id:%d), 0x"TARGET_FMT_lx" (id:%d))\n",
+                pc1, tbstats_pc1 ? tbstats_pc1->display_id : displayid1,
+                pc2, tbstats_pc2 ? tbstats_pc2->display_id : displayid2);
     }
 }
 
@@ -243,11 +293,11 @@ static void dump_tb_header(TBStatistics *tbs)
 
     float guest_host_prop = g ? ((float) h / g) : 0;
 
-    qemu_log("TB%d: phys:0x"TB_PAGE_ADDR_FMT" virt:0x"TARGET_FMT_lx
-             " flags:%#08x (trans:%lu uncached:%lu exec:%lu ints: g:%u op:%u op_opt:%u h:%u h/g:%.2f spills:%d)\n",
+    qemu_log("TB id:%d phys:0x"TB_PAGE_ADDR_FMT" virt:0x"TARGET_FMT_lx
+             " flags:%#08x (trans:%lu exec:%lu ints: g:%u op:%u op_opt:%u h:%u h/g:%.2f spills:%d)\n",
              tbs->display_id,
              tbs->phys_pc, tbs->pc, tbs->flags,
-             tbs->translations.total, tbs->translations.uncached,
+             tbs->translations.total,
              tbs->executions.total, g, ops, ops_opt, h, guest_host_prop,
              spills);
 }
@@ -289,7 +339,7 @@ static void do_dump_coverset_info(int percentage)
     uint64_t total_exec_count = 0;
     uint64_t covered_exec_count = 0;
     unsigned coverset_size = 0;
-    int id = 1;
+    id = 1;
     GList *i;
 
     g_list_free(last_search);
@@ -343,7 +393,7 @@ static void do_dump_coverset_info(int percentage)
 
 static void do_dump_tbs_info(int count, int sort_by)
 {
-    int id = 1;
+    id = 1;
     GList *i;
 
     g_list_free(last_search);
@@ -463,10 +513,11 @@ struct tb_dump_info {
     bool use_monitor;
 };
 
+
+
 static void do_dump_tb_info_safe(CPUState *cpu, run_on_cpu_data info)
 {
     struct tb_dump_info *tbdi = (struct tb_dump_info *) info.host_ptr;
-    GList *iter;
 
     if (!last_search) {
         qemu_printf("no search on record");
@@ -474,14 +525,15 @@ static void do_dump_tb_info_safe(CPUState *cpu, run_on_cpu_data info)
     }
     qemu_log_to_monitor(tbdi->use_monitor);
 
-    for (iter = last_search; iter; iter = g_list_next(iter)) {
-        TBStatistics *tbs = iter->data;
-        if (tbs->display_id == tbdi->id) {
-            do_tb_dump_with_statistics(tbs, tbdi->log_flags);
-            break;
-        }
+    TBStatistics *tbs = get_tbstats_by_id(tbdi->id);
+    if (tbs) {
+        do_tb_dump_with_statistics(tbs, tbdi->log_flags);
+    } else {
+        qemu_printf("no TB statitics found with id %d", tbdi->id);
     }
+
     qemu_log_to_monitor(false);
+
     g_free(tbdi);
 }
 
@@ -499,3 +551,129 @@ void dump_tb_info(int id, int log_mask, bool use_monitor)
     /* tbdi free'd by do_dump_tb_info_safe */
 }
 
+#define MAX_CFG_NUM_NODES 1000
+int cfg_tb_id;
+GHashTable *cfg_nodes;
+uint64_t root_count;
+
+static void fputs_jump(TBStatistics *from, TBStatistics *to, FILE *dot)
+{
+    if (!from || !to) {
+        return;
+    }
+
+    int *from_id = (int *) g_hash_table_lookup(cfg_nodes, from);
+    int *to_id   = (int *) g_hash_table_lookup(cfg_nodes, to);
+
+    if (!from_id || !to_id) {
+        return;
+    }
+
+    GString *line = g_string_new(NULL);;
+
+    g_string_printf(line, "   node_%d -> node_%d;\n", *from_id, *to_id);
+
+    fputs(line->str, dot);
+
+    g_string_free(line, TRUE);
+}
+
+static void fputs_tbstats(TBStatistics *tbs, FILE *dot)
+{
+    GString *line = g_string_new(NULL);;
+
+    uint32_t color = 0xFF666;
+    uint64_t count = tbs->executions.total;
+    if (count > 1.6 * root_count) {
+        color = 0xFF000;
+    } else if (count > 1.2 * root_count) {
+        color = 0xFF333;
+    } else if (count < 0.4 * root_count) {
+        color = 0xFFCCC;
+    } else if (count < 0.8 * root_count) {
+        color = 0xFF999;
+    }
+
+    g_string_printf(line,
+            "   node_%d [fillcolor=\"#%xFF0000\" shape=\"record\" "
+            "label=\"TB %d\\l|"
+            "PC:\t0x"TARGET_FMT_lx"\\l"
+            "exec count:\t%lu\\l\"];\n",
+            cfg_tb_id, color, cfg_tb_id, tbs->pc, tbs->executions.total);
+
+    fputs(line->str, dot);
+
+    int *id = g_new(int, 1);
+    *id = cfg_tb_id;
+    g_hash_table_insert(cfg_nodes, tbs, id);
+
+    cfg_tb_id++;
+
+    g_string_free(line, TRUE);
+}
+
+static void fputs_preorder_walk(TBStatistics *tbs, int depth, FILE *dot)
+{
+    if (tbs && depth > 0
+            && cfg_tb_id < MAX_CFG_NUM_NODES
+            && !g_hash_table_contains(cfg_nodes, tbs)) {
+
+        fputs_tbstats(tbs, dot);
+
+        if (tbs->tb) {
+            TranslationBlock *left_tb =
+                (TranslationBlock *) atomic_read(tbs->tb->jmp_dest);
+            TranslationBlock *right_tb =
+                (TranslationBlock *) atomic_read(tbs->tb->jmp_dest + 1);
+
+            if (left_tb) {
+                fputs_preorder_walk(left_tb->tb_stats, depth - 1, dot);
+                fputs_jump(tbs, left_tb->tb_stats, dot);
+            }
+            if (right_tb) {
+                fputs_preorder_walk(right_tb->tb_stats, depth - 1, dot);
+                fputs_jump(tbs, right_tb->tb_stats, dot);
+            }
+        }
+    }
+}
+
+void dump_tb_cfg(int id, int depth)
+{
+    cfg_tb_id = 1;
+    root_count = 0;
+
+    GString *file_name = g_string_new(NULL);;
+    g_string_printf(file_name, "/tmp/qemu-cfg-tb-%d-%d.dot", id, depth);
+    FILE *dot = fopen(file_name->str, "w+");
+
+    fputs(
+            "digraph G {\n"
+            "   mclimit=1.5;\n"
+            "   rankdir=TD; ordering=out;\n"
+            "   graph[fontsize=10 fontname=\"Verdana\"];\n"
+            "   color=\"#efefef\";\n"
+            "   node[shape=box style=filled fontsize=8 fontname=\"Verdana\" fillcolor=\"#efefef\"];\n"
+            "   edge[fontsize=8 fontname=\"Verdana\"];\n"
+         , dot);
+
+    /* do a pre-order walk in the CFG with a limited depth */
+    TBStatistics *root = get_tbstats_by_id(id);
+    if (root) {
+        root_count = root->executions.total;
+    }
+    cfg_nodes = g_hash_table_new(NULL, NULL);
+    fputs_preorder_walk(root, depth + 1, dot);
+    g_hash_table_destroy(cfg_nodes);
+
+    fputs("}\n\0", dot);
+    fclose(dot);
+
+    pid_t pid = fork();
+    if (pid == 0) {
+        char *args[] = {(char *) "xdot", file_name->str, NULL};
+        execvp(args[0], args);
+    }
+
+    g_string_free(file_name, TRUE);
+}

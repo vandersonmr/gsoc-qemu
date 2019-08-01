@@ -548,6 +548,19 @@ static void hmp_info_tb(Monitor *mon, const QDict *qdict)
     dump_tb_info(id, mask, true);
 }
 
+static void hmp_info_cfg(Monitor *mon, const QDict *qdict)
+{
+    const int id = qdict_get_int(qdict, "id");
+    const int depth = qdict_get_try_int(qdict, "depth", 3);
+
+    if (!tcg_enabled()) {
+        error_report("TB information is only available with accel=tcg");
+        return;
+    }
+
+    dump_tb_cfg(id, depth);
+}
+
 static void hmp_info_coverset(Monitor *mon, const QDict *qdict)
 {
     int n;
