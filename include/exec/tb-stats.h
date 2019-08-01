@@ -60,6 +60,9 @@ struct TBStatistics {
 
     /* HMP information - used for referring to previous search */
     int display_id;
+
+    /* current TB linked to this TBStatistics */
+    TranslationBlock *tb;
 };
 
 bool tb_stats_cmp(const void *ap, const void *bp);

@@ -58,7 +58,7 @@
 #include "sysemu/cpus.h"
 #include "sysemu/tcg.h"
 
-#include "jitdump.h"
+#include "perf/jitdump.h"
 
 /* #define DEBUG_TB_INVALIDATE */
 /* #define DEBUG_TB_FLUSH */
@@ -1694,7 +1694,8 @@ tb_link_page(TranslationBlock *tb, tb_page_addr_t phys_pc,
 }
 
 static TBStatistics *tb_get_stats(tb_page_addr_t phys_pc, target_ulong pc,
-                                  target_ulong cs_base, uint32_t flags)
+                                  target_ulong cs_base, uint32_t flags,
+                                  TranslationBlock *current_tb)
 {
     TBStatistics *new_stats = g_new0(TBStatistics, 1);
     uint32_t hash = tb_stats_hash_func(phys_pc, pc, flags);
@@ -1703,6 +1704,7 @@ static TBStatistics *tb_get_stats(tb_page_addr_t phys_pc, target_ulong pc,
     new_stats->pc = pc;
     new_stats->cs_base = cs_base;
     new_stats->flags = flags;
+    new_stats->tb = current_tb;
 
     qht_insert(&tb_ctx.tb_stats, new_stats, hash, &existing_stats);
 
@@ -1712,6 +1714,7 @@ static TBStatistics *tb_get_stats(tb_page_addr_t phys_pc, target_ulong pc,
          * then just make the new TB point to the older TBStatistic
          */
         g_free(new_stats);
+        ((TBStatistics *) existing_stats)->tb = current_tb;
         return existing_stats;
     } else {
         return new_stats;
@@ -1789,7 +1792,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
      * generation.
      */
     if (tb_stats_collection_enabled()) {
-        tb->tb_stats = tb_get_stats(phys_pc, pc, cs_base, flags);
+        tb->tb_stats = tb_get_stats(phys_pc, pc, cs_base, flags, tb);
         uint32_t flag = get_default_tbstats_flag();
 
         if (qemu_log_in_addr_range(tb->pc)) {

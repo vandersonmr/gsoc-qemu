@@ -217,6 +217,17 @@ static void collect_tb_stats(void *p, uint32_t hash, void *userp)
     last_search = g_list_prepend(last_search, p);
 }
 
+static void dump_tb_targets(TBStatistics *tbs)
+{
+    if (tbs && tbs->tb) {
+        uintptr_t dst1 = atomic_read(tbs->tb->jmp_dest);
+        uintptr_t dst2 = atomic_read(tbs->tb->jmp_dest + 1);
+        qemu_log("TB Targets: (0x"TARGET_FMT_lx", 0x"TARGET_FMT_lx")\n",
+                dst1 > 1 ? ((TranslationBlock *) dst1)->pc : 0,
+                dst2 > 1 ? ((TranslationBlock *) dst2)->pc : 0);
+    }
+}
+
 static void dump_tb_header(TBStatistics *tbs)
 {
     unsigned g = tbs->translations.total ?
@@ -425,6 +436,7 @@ static void do_tb_dump_with_statistics(TBStatistics *tbs, int log_flags)
 
     qemu_log("\n------------------------------\n");
     dump_tb_header(tbs);
+    dump_tb_targets(tbs);
 
     if (sigsetjmp(cpu->jmp_env, 0) == 0) {
         mmap_lock();
