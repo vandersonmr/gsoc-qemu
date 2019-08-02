@@ -112,6 +112,6 @@ void dump_tbs_info(int count, int sort_by, bool use_monitor);
  */
 void dump_tb_info(int id, int log_mask, bool use_monitor);
 
-void dump_tb_cfg(int id, int depth);
+void dump_tb_cfg(int id, int depth, int log_flags);
 
 #endif

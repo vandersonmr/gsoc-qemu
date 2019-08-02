@@ -306,8 +306,8 @@ ETEXI
     },
     {
         .name       = "cfg",
-        .args_type  = "id:i,depth:i?",
-        .params     = "id [depth]",
+        .args_type  = "id:i,depth:i?,flags:s?",
+        .params     = "id [depth flags]",
         .help       = "plot CFG around TB with the given id",
         .cmd        = hmp_info_cfg,
     },

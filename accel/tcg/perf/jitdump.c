@@ -127,18 +127,13 @@ void start_jitdump_file(void)
     header->timestamp = get_timestamp();
 
     fwrite(header, header->total_size, 1, dumpfile);
-    fclose(dumpfile);
 
     free(header);
+    fflush(dumpfile);
 }
 
 void append_load_in_jitdump_file(TranslationBlock *tb)
 {
-    GString *dumpfile_name = g_string_new(NULL);
-    g_string_printf(dumpfile_name, "./jit-%d.dump", getpid());
-    dumpfile = fopen(dumpfile_name->str, "a");
-    g_string_free(dumpfile_name, TRUE);
-
     GString *func_name = g_string_new(NULL);
     if (tb->tb_stats) {
         TBStatistics *tbs = tb->tb_stats;
@@ -174,8 +169,8 @@ void append_load_in_jitdump_file(TranslationBlock *tb)
     fwrite(tb->tc.ptr, tb->tc.size, 1, dumpfile);
 
     g_string_free(func_name, TRUE);
-    fclose(dumpfile);
     free(load_event);
+    fflush(dumpfile);
 }
 
 void close_jitdump_file(void)

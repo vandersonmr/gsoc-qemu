@@ -475,18 +475,18 @@ void dump_tbs_info(int count, int sort_by, bool use_monitor)
     }
 }
 
-static void do_tb_dump_with_statistics(TBStatistics *tbs, int log_flags)
+static GString *get_code_string(TBStatistics *tbs, int log_flags)
 {
-    CPUState *cpu = current_cpu;
-    uint32_t cflags = curr_cflags() | CF_NOCACHE;
     int old_log_flags = qemu_loglevel;
+
+    CPUState *cpu = first_cpu;
+    uint32_t cflags = curr_cflags() | CF_NOCACHE;
     TranslationBlock *tb = NULL;
 
-    qemu_set_log(log_flags);
+    GString *code_s = g_string_new(NULL);
+    qemu_log_to_string(true, code_s);
 
-    qemu_log("\n------------------------------\n");
-    dump_tb_header(tbs);
-    dump_tb_targets(tbs);
+    qemu_set_log(log_flags);
 
     if (sigsetjmp(cpu->jmp_env, 0) == 0) {
         mmap_lock();
@@ -503,8 +503,24 @@ static void do_tb_dump_with_statistics(TBStatistics *tbs, int log_flags)
     }
 
     qemu_set_log(old_log_flags);
+    qemu_log_to_string(false, NULL);
 
-    tcg_tb_remove(tb);
+    if (tb) {
+        tcg_tb_remove(tb);
+    }
+
+    return code_s;
+}
+
+static void do_tb_dump_with_statistics(TBStatistics *tbs, int log_flags)
+{
+    qemu_log("\n------------------------------\n");
+    dump_tb_header(tbs);
+    dump_tb_targets(tbs);
+
+    GString *code_s = get_code_string(tbs, log_flags);
+    qemu_log("\n%s", code_s->str);
+    g_string_free(code_s, true);
 }
 
 struct tb_dump_info {
@@ -512,8 +528,6 @@ struct tb_dump_info {
     int log_flags;
     bool use_monitor;
 };
-
-
 
 static void do_dump_tb_info_safe(CPUState *cpu, run_on_cpu_data info)
 {
@@ -569,16 +583,16 @@ static void fputs_jump(TBStatistics *from, TBStatistics *to, FILE *dot)
         return;
     }
 
-    GString *line = g_string_new(NULL);;
+    GString *line = g_string_new(NULL);
 
     g_string_printf(line, "   node_%d -> node_%d;\n", *from_id, *to_id);
 
     fputs(line->str, dot);
 
-    g_string_free(line, TRUE);
+    g_string_free(line, true);
 }
 
-static void fputs_tbstats(TBStatistics *tbs, FILE *dot)
+static void fputs_tbstats(TBStatistics *tbs, FILE *dot, int log_flags)
 {
     GString *line = g_string_new(NULL);;
 
@@ -594,12 +608,25 @@ static void fputs_tbstats(TBStatistics *tbs, FILE *dot)
         color = 0xFF999;
     }
 
+    GString *code_s = get_code_string(tbs, log_flags);
+
+    for (int i = 0; i < code_s->len; i++) {
+        if (code_s->str[i] == '\n') {
+            code_s->str[i] = ' ';
+            code_s = g_string_insert(code_s, i, "\\l");
+            i += 2;
+        }
+    }
+
     g_string_printf(line,
             "   node_%d [fillcolor=\"#%xFF0000\" shape=\"record\" "
-            "label=\"TB %d\\l|"
+            "label=\"TB %d\\l"
+            "-------------\\l"
             "PC:\t0x"TARGET_FMT_lx"\\l"
-            "exec count:\t%lu\\l\"];\n",
-            cfg_tb_id, color, cfg_tb_id, tbs->pc, tbs->executions.total);
+            "exec count:\t%lu\\l"
+            "\\l %s\"];\n",
+            cfg_tb_id, color, cfg_tb_id, tbs->pc,
+            tbs->executions.total, code_s->str);
 
     fputs(line->str, dot);
 
@@ -609,16 +636,17 @@ static void fputs_tbstats(TBStatistics *tbs, FILE *dot)
 
     cfg_tb_id++;
 
-    g_string_free(line, TRUE);
+    g_string_free(line, true);
+    g_string_free(code_s, true);
 }
 
-static void fputs_preorder_walk(TBStatistics *tbs, int depth, FILE *dot)
+static void fputs_preorder_walk(TBStatistics *tbs, int depth, FILE *dot, int log_flags)
 {
     if (tbs && depth > 0
             && cfg_tb_id < MAX_CFG_NUM_NODES
             && !g_hash_table_contains(cfg_nodes, tbs)) {
 
-        fputs_tbstats(tbs, dot);
+        fputs_tbstats(tbs, dot, log_flags);
 
         if (tbs->tb) {
             TranslationBlock *left_tb =
@@ -627,18 +655,18 @@ static void fputs_preorder_walk(TBStatistics *tbs, int depth, FILE *dot)
                 (TranslationBlock *) atomic_read(tbs->tb->jmp_dest + 1);
 
             if (left_tb) {
-                fputs_preorder_walk(left_tb->tb_stats, depth - 1, dot);
+                fputs_preorder_walk(left_tb->tb_stats, depth - 1, dot, log_flags);
                 fputs_jump(tbs, left_tb->tb_stats, dot);
             }
             if (right_tb) {
-                fputs_preorder_walk(right_tb->tb_stats, depth - 1, dot);
+                fputs_preorder_walk(right_tb->tb_stats, depth - 1, dot, log_flags);
                 fputs_jump(tbs, right_tb->tb_stats, dot);
             }
         }
     }
 }
 
-void dump_tb_cfg(int id, int depth)
+void dump_tb_cfg(int id, int depth, int log_flags)
 {
     cfg_tb_id = 1;
     root_count = 0;
@@ -663,7 +691,7 @@ void dump_tb_cfg(int id, int depth)
         root_count = root->executions.total;
     }
     cfg_nodes = g_hash_table_new(NULL, NULL);
-    fputs_preorder_walk(root, depth + 1, dot);
+    fputs_preorder_walk(root, depth + 1, dot, log_flags);
     g_hash_table_destroy(cfg_nodes);
 
     fputs("}\n\0", dot);

@@ -552,13 +552,22 @@ static void hmp_info_cfg(Monitor *mon, const QDict *qdict)
 {
     const int id = qdict_get_int(qdict, "id");
     const int depth = qdict_get_try_int(qdict, "depth", 3);
+    const char *flags = qdict_get_try_str(qdict, "flags");
+    int mask;
 
     if (!tcg_enabled()) {
         error_report("TB information is only available with accel=tcg");
         return;
     }
 
-    dump_tb_cfg(id, depth);
+    mask = flags ? qemu_str_to_log_mask(flags) : CPU_LOG_TB_IN_ASM;
+
+    if (!mask) {
+        help_cmd(mon, "log");
+        return;
+    }
+
+    dump_tb_cfg(id, depth, mask);
 }
 
 static void hmp_info_coverset(Monitor *mon, const QDict *qdict)

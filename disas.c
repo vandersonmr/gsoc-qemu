@@ -8,6 +8,8 @@
 #include "disas/disas.h"
 #include "disas/capstone.h"
 
+#include "qemu/log-for-trace.h"
+
 typedef struct CPUDebug {
     struct disassemble_info info;
     CPUState *cpu;
@@ -420,6 +422,22 @@ static bool cap_disas_monitor(disassemble_info *info, uint64_t pc, int count)
 # define cap_disas_monitor(i, p, c)  false
 #endif /* CONFIG_CAPSTONE */
 
+static int fprintf_log(struct _IO_FILE *a, const char *b, ...)
+{
+    va_list ap;
+    va_start(ap, b);
+
+    if (!to_string) {
+        vfprintf(a, b, ap);
+    } else {
+        qemu_vlog(b, ap);
+    }
+
+    va_end(ap);
+
+    return 1;
+}
+
 /* Disassemble this for me please... (debugging).  */
 void target_disas(FILE *out, CPUState *cpu, target_ulong code,
                   target_ulong size)
@@ -429,7 +447,7 @@ void target_disas(FILE *out, CPUState *cpu, target_ulong code,
     int count;
     CPUDebug s;
 
-    INIT_DISASSEMBLE_INFO(s.info, out, fprintf);
+    INIT_DISASSEMBLE_INFO(s.info, out, fprintf_log);
 
     s.cpu = cpu;
     s.info.read_memory_func = target_read_memory;
@@ -460,17 +478,18 @@ void target_disas(FILE *out, CPUState *cpu, target_ulong code,
     }
 
     for (pc = code; size > 0; pc += count, size -= count) {
-	fprintf(out, "0x" TARGET_FMT_lx ":  ", pc);
-	count = s.info.print_insn(pc, &s.info);
-	fprintf(out, "\n");
-	if (count < 0)
-	    break;
+        fprintf_log(out, "0x" TARGET_FMT_lx ":  ", pc);
+        count = s.info.print_insn(pc, &s.info);
+        fprintf_log(out, "\n");
+        if (count < 0) {
+            break;
+        }
         if (size < count) {
             fprintf(out,
                     "Disassembler disagrees with translator over instruction "
                     "decoding\n"
                     "Please report this to qemu-devel@nongnu.org\n");
-            break;
+             break;
         }
     }
 }
@@ -580,9 +599,6 @@ unsigned get_num_insts(void *code, unsigned long size)
     return num_insts;
 }
 
-
-
-
 /* Disassemble this for me please... (debugging). */
 void disas(FILE *out, void *code, unsigned long size)
 {
@@ -591,7 +607,7 @@ void disas(FILE *out, void *code, unsigned long size)
     CPUDebug s;
     int (*print_insn)(bfd_vma pc, disassemble_info *info) = NULL;
 
-    INIT_DISASSEMBLE_INFO(s.info, out, fprintf);
+    INIT_DISASSEMBLE_INFO(s.info, out, fprintf_log);
     s.info.print_address_func = generic_print_host_address;
 
     s.info.buffer = code;
@@ -670,9 +686,9 @@ void disas(FILE *out, void *code, unsigned long size)
         print_insn = print_insn_od_host;
     }
     for (pc = (uintptr_t)code; size > 0; pc += count, size -= count) {
-        fprintf(out, "0x%08" PRIxPTR ":  ", pc);
+        fprintf_log(out, "0x%08" PRIxPTR ":  ", pc);
         count = print_insn(pc, &s.info);
-	fprintf(out, "\n");
+        fprintf_log(out, "\n");
 	if (count < 0)
 	    break;
     }

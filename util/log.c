@@ -33,20 +33,22 @@ static int log_append = 0;
 static GArray *debug_regions;
 int32_t max_num_hot_tbs_to_dump;
 static bool to_monitor;
+bool to_string;
 
-/* Return the number of characters emitted.  */
-int qemu_log(const char *fmt, ...)
+GString *string;
+
+int qemu_vlog(const char *fmt, va_list va)
 {
     int ret = 0;
-    va_list ap;
-    va_start(ap, fmt);
-
-    if (to_monitor) {
-        ret = qemu_vprintf(fmt, ap);
+    if (to_string) {
+        if (string) {
+            g_string_append_vprintf(string, fmt, va);
+        }
+    } else if (to_monitor) {
+        ret = qemu_vprintf(fmt, va);
     } else if (qemu_logfile) {
-        ret = vfprintf(qemu_logfile, fmt, ap);
+        ret = vfprintf(qemu_logfile, fmt, va);
     }
-    va_end(ap);
 
     /* Don't pass back error results.  */
     if (ret < 0) {
@@ -55,9 +57,29 @@ int qemu_log(const char *fmt, ...)
     return ret;
 }
 
+/* Return the number of characters emitted.  */
+int qemu_log(const char *fmt, ...)
+{
+    int ret = 0;
+    va_list ap;
+    va_start(ap, fmt);
+
+    ret = qemu_vlog(fmt, ap);
+
+    va_end(ap);
+
+    return ret;
+}
+
 void qemu_log_to_monitor(bool enable)
 {
     to_monitor = enable;
+}
+
+void qemu_log_to_string(bool enable, GString *s)
+{
+    to_string = enable;
+    string = s;
 }
 
 static bool log_uses_own_buffers;
@@ -69,6 +91,10 @@ void qemu_set_log(int log_flags)
 #ifdef CONFIG_TRACE_LOG
     qemu_loglevel |= LOG_TRACE;
 #endif
+    if (to_string || to_monitor) {
+        return;
+    }
+
     if (!qemu_logfile &&
         (is_daemonized() ? logfilename != NULL : qemu_loglevel)) {
         if (logfilename) {
