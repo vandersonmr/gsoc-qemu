@@ -355,11 +355,13 @@ int qemu_str_to_log_mask(const char *str)
                     set_default_tbstats_flag(TB_JIT_STATS);
                 } else if (g_str_equal(s, "exec") == 0) {
                     set_default_tbstats_flag(TB_EXEC_STATS);
+                } else if (g_str_equal(s, "time") == 0) {
+                    set_default_tbstats_flag(TB_EXEC_STATS);
                 } else {
-                    set_default_tbstats_flag(TB_JIT_STATS | TB_EXEC_STATS);
+                    set_default_tbstats_flag(TB_JIT_STATS | TB_EXEC_STATS | TB_JIT_TIME);
                 }
             } else {
-                set_default_tbstats_flag(TB_JIT_STATS | TB_EXEC_STATS);
+                set_default_tbstats_flag(TB_JIT_STATS | TB_EXEC_STATS | TB_JIT_TIME);
             }
 
             mask |= CPU_LOG_TB_STATS;

@@ -58,6 +58,15 @@ struct TBStatistics {
         unsigned long spanning;
     } translations;
 
+    struct {
+        uint64_t restore;
+        uint64_t restore_count;
+        uint64_t interm;
+        uint64_t code;
+        uint64_t opt;
+        uint64_t la;
+    } time;
+
     /* HMP information - used for referring to previous search */
     int display_id;
 
@@ -67,6 +76,7 @@ struct TBStatistics {
 
 bool tb_stats_cmp(const void *ap, const void *bp);
 
+void dump_jit_exec_time_info(uint64_t dev_time);
 void dump_jit_profile_info(TCGProfile *s);
 
 void set_tbstats_flags(uint32_t flags);

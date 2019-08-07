@@ -9,10 +9,12 @@
 /* only accessed in safe work */
 static GList *last_search;
 int id = 1; /* display_id increment counter */
+uint64_t dev_time;
 
 static TBStatistics *get_tbstats_by_id(int id)
 {
     GList *iter;
+
     for (iter = last_search; iter; iter = g_list_next(iter)) {
         TBStatistics *tbs = iter->data;
         if (tbs && tbs->display_id == id) {
@@ -48,6 +50,13 @@ struct jit_profile_info {
     uint64_t guest;
     uint64_t host_ins;
     uint64_t search_data;
+
+    uint64_t interm_time;
+    uint64_t code_time;
+    uint64_t restore_count;
+    uint64_t restore_time;
+    uint64_t opt_time;
+    uint64_t la_time;
 };
 
 /* accumulate the statistics from all TBs */
@@ -72,6 +81,29 @@ static void collect_jit_profile_info(void *p, uint32_t hash, void *userp)
     jpi->guest += tbs->code.in_len;
     jpi->host_ins += tbs->code.num_host_inst;
     jpi->search_data += tbs->code.search_out_len;
+
+    jpi->interm_time += tbs->time.interm / tbs->translations.total;
+    jpi->code_time += tbs->time.code / tbs->translations.total;
+    jpi->opt_time += tbs->time.opt / tbs->translations.total;
+    jpi->la_time += tbs->time.la / tbs->translations.total;
+    jpi->restore_time += tbs->time.restore;
+    jpi->restore_count += tbs->time.restore_count;
+}
+
+void dump_jit_exec_time_info(uint64_t dev_time)
+{
+    static uint64_t last_cpu_exec_time;
+    uint64_t cpu_exec_time;
+    uint64_t delta;
+
+    cpu_exec_time = tcg_cpu_exec_time();
+    delta = cpu_exec_time - last_cpu_exec_time;
+
+    qemu_printf("async time  %" PRId64 " (%0.3f)\n",
+                   dev_time, dev_time / (double) NANOSECONDS_PER_SECOND);
+    qemu_printf("qemu time   %" PRId64 " (%0.3f)\n",
+                   delta, delta / (double) NANOSECONDS_PER_SECOND);
+    last_cpu_exec_time = cpu_exec_time;
 }
 
 /* dump JIT statisticis using TCGProfile and TBStats */
@@ -100,36 +132,44 @@ void dump_jit_profile_info(TCGProfile *s)
         qemu_printf("avg search data/TB  %0.1f\n",
                 jpi->search_data / (double) jpi->translations);
 
+        uint64_t tot = jpi->interm_time + jpi->code_time;
+
+        qemu_printf("JIT cycles          %" PRId64 " (%0.3fs at 2.4 GHz)\n",
+                tot, tot / 2.4e9);
+        qemu_printf("cycles/op           %0.1f\n",
+                jpi->ops ? (double)tot / jpi->ops : 0);
+        qemu_printf("cycles/in byte      %0.1f\n",
+                jpi->guest ? (double)tot / jpi->guest : 0);
+        qemu_printf("cycles/out byte     %0.1f\n",
+                jpi->host ? (double)tot / jpi->host : 0);
+        qemu_printf("cycles/out inst     %0.1f\n",
+                jpi->host_ins ? (double)tot / jpi->host_ins : 0);
+        qemu_printf("cycles/search byte     %0.1f\n",
+                jpi->search_data ? (double)tot / jpi->search_data : 0);
+        if (tot == 0) {
+            tot = 1;
+        }
+
+        qemu_printf("  gen_interm time   %0.1f%%\n",
+                (double)jpi->interm_time / tot * 100.0);
+        qemu_printf("  gen_code time     %0.1f%%\n",
+                (double)jpi->code_time / tot * 100.0);
+
+        qemu_printf("optim./code time    %0.1f%%\n",
+                (double)jpi->opt_time / (jpi->code_time ? jpi->code_time : 1)
+                * 100.0);
+        qemu_printf("liveness/code time  %0.1f%%\n",
+                (double)jpi->la_time / (jpi->code_time ? jpi->code_time : 1) * 100.0);
+
+        qemu_printf("cpu_restore count   %" PRId64 "\n",
+                jpi->restore_count);
+        qemu_printf("  avg cycles        %0.1f\n",
+                jpi->restore_count ? (double)jpi->restore_time / jpi->restore_count : 0);
+
         if (s) {
-            int64_t tot = s->interm_time + s->code_time;
-            qemu_printf("JIT cycles          %" PRId64 " (%0.3f s at 2.4 GHz)\n",
-                            tot, tot / 2.4e9);
-            qemu_printf("cycles/op           %0.1f\n",
-                        jpi->ops ? (double)tot / jpi->ops : 0);
-            qemu_printf("cycles/in byte      %0.1f\n",
-                        jpi->guest ? (double)tot / jpi->guest : 0);
-            qemu_printf("cycles/out byte     %0.1f\n",
-                        jpi->host ? (double)tot / jpi->host : 0);
-            qemu_printf("cycles/out inst     %0.1f\n",
-                        jpi->host_ins ? (double)tot / jpi->host_ins : 0);
-            qemu_printf("cycles/search byte     %0.1f\n",
-                        jpi->search_data ? (double)tot / jpi->search_data : 0);
-            if (tot == 0) {
-                tot = 1;
-            }
-            qemu_printf("  gen_interm time   %0.1f%%\n",
-                        (double)s->interm_time / tot * 100.0);
-            qemu_printf("  gen_code time     %0.1f%%\n",
-                        (double)s->code_time / tot * 100.0);
-            qemu_printf("optim./code time    %0.1f%%\n",
-                        (double)s->opt_time / (s->code_time ? s->code_time : 1)
-                        * 100.0);
-            qemu_printf("liveness/code time  %0.1f%%\n",
-                    (double)s->la_time / (s->code_time ? s->code_time : 1) * 100.0);
-            qemu_printf("cpu_restore count   %" PRId64 "\n",
-                    s->restore_count);
-            qemu_printf("  avg cycles        %0.1f\n",
-                    s->restore_count ? (double)s->restore_time / s->restore_count : 0);
+            qemu_printf("cpu exec time  %" PRId64 " (%0.3fs)\n",
+                s->cpu_exec_time, s->cpu_exec_time / (double) NANOSECONDS_PER_SECOND);
+
         }
     }
 }
@@ -257,24 +297,36 @@ static void dump_tb_targets(TBStatistics *tbs)
         /* if there is no display id from the last_search, then create one */
         TBStatistics *tbstats_pc1 = get_tbstats_by_addr(pc1);
         TBStatistics *tbstats_pc2 = get_tbstats_by_addr(pc2);
-        int displayid1 = 0;
-        int displayid2 = 0;
 
         if (!tbstats_pc1 && tb_dst1 && tb_dst1->tb_stats) {
-            tb_dst1->tb_stats->display_id = id;
             last_search = g_list_append(last_search, tb_dst1->tb_stats);
-            displayid1 = id++;
+            tbstats_pc1 = tb_dst1->tb_stats;
         }
 
         if (!tbstats_pc2 && tb_dst2 && tb_dst2->tb_stats) {
-            tb_dst2->tb_stats->display_id = id;
             last_search = g_list_append(last_search, tb_dst2->tb_stats);
-            displayid2 = id++;
+            tbstats_pc2 = tb_dst2->tb_stats;
         }
 
-        qemu_log("TB Targets: (0x"TARGET_FMT_lx" (id:%d), 0x"TARGET_FMT_lx" (id:%d))\n",
-                pc1, tbstats_pc1 ? tbstats_pc1->display_id : displayid1,
-                pc2, tbstats_pc2 ? tbstats_pc2->display_id : displayid2);
+        if (tbstats_pc1 && tbstats_pc1->display_id == 0) {
+            tbstats_pc1->display_id = id++;
+        }
+
+        if (tbstats_pc2 && tbstats_pc2->display_id == 0) {
+            tbstats_pc2->display_id = id++;
+        }
+
+        if (pc1 && !pc2) {
+            qemu_log("\t| targets: 0x"TB_PAGE_ADDR_FMT" (id:%d)\n",
+                    pc1, tb_dst1 ? tbstats_pc1->display_id : -1);
+        } else if (pc1 && pc2) {
+            qemu_log("\t| targets: 0x"TB_PAGE_ADDR_FMT" (id:%d),"
+                     "0x"TB_PAGE_ADDR_FMT" (id:%d)\n",
+                    pc1, tb_dst1 ? tbstats_pc1->display_id : -1,
+                    pc2, tb_dst2 ? tbstats_pc2->display_id : -1);
+        } else {
+            qemu_log("\t| targets: no direct target\n");
+        }
     }
 }
 
@@ -293,13 +345,16 @@ static void dump_tb_header(TBStatistics *tbs)
 
     float guest_host_prop = g ? ((float) h / g) : 0;
 
-    qemu_log("TB id:%d phys:0x"TB_PAGE_ADDR_FMT" virt:0x"TARGET_FMT_lx
-             " flags:%#08x (trans:%lu exec:%lu ints: g:%u op:%u op_opt:%u h:%u h/g:%.2f spills:%d)\n",
+    qemu_log("TB id:%d | phys:0x"TB_PAGE_ADDR_FMT" virt:0x"TARGET_FMT_lx
+             " flags:%#08x\n\t| trans:%lu exec:%lu ints: g:%u op:%u op_opt:%u h:%u h/g:%.2f spills:%d"
+             "\n\t| time to gen at 2.4GHz => code:%0.2lf(ns) IR:%0.2lf(ns)\n",
              tbs->display_id,
              tbs->phys_pc, tbs->pc, tbs->flags,
              tbs->translations.total,
              tbs->executions.total, g, ops, ops_opt, h, guest_host_prop,
-             spills);
+             spills, tbs->time.code / 2.4, tbs->time.interm / 2.4);
+    dump_tb_targets(tbs);
+    qemu_log("\n");
 }
 
 static gint
@@ -334,6 +389,20 @@ inverse_sort_tbs(gconstpointer p1, gconstpointer p2, gpointer psort_by)
     return c1 < c2 ? 1 : c1 == c2 ? 0 : -1;
 }
 
+static void dump_last_search_headers(int count)
+{
+    if (!last_search) {
+        qemu_log("No data collected yet\n");
+        return;
+    }
+
+    GList *i;
+    for (i = last_search; i && count--; i = i->next) {
+        TBStatistics *tbs = (TBStatistics *) i->data;
+        dump_tb_header(tbs);
+    }
+}
+
 static void do_dump_coverset_info(int percentage)
 {
     uint64_t total_exec_count = 0;
@@ -366,7 +435,6 @@ static void do_dump_coverset_info(int percentage)
         covered_exec_count += tbs->executions.total * tbs->code.num_guest_inst;
         tbs->display_id = id++;
         coverset_size++;
-        dump_tb_header(tbs);
 
         /* Iterate and display tbs until reach the percentage count cover */
         if (((double) covered_exec_count / total_exec_count) >
@@ -389,12 +457,15 @@ static void do_dump_coverset_info(int percentage)
         g_list_free(i->next);
         i->next = NULL;
     }
+
+    dump_last_search_headers(coverset_size);
 }
 
-static void do_dump_tbs_info(int count, int sort_by)
+static void do_dump_tbs_info(int total, int sort_by)
 {
     id = 1;
     GList *i;
+    int count = total;
 
     g_list_free(last_search);
     last_search = NULL;
@@ -404,6 +475,7 @@ static void do_dump_tbs_info(int count, int sort_by)
     last_search = g_list_sort_with_data(last_search, inverse_sort_tbs,
                                         &sort_by);
 
+
     if (!last_search) {
         qemu_printf("No data collected yet!\n");
         return;
@@ -412,7 +484,6 @@ static void do_dump_tbs_info(int count, int sort_by)
     for (i = last_search; i && count--; i = i->next) {
         TBStatistics *tbs = (TBStatistics *) i->data;
         tbs->display_id = id++;
-        dump_tb_header(tbs);
     }
 
     /* free the unused bits */
@@ -423,6 +494,8 @@ static void do_dump_tbs_info(int count, int sort_by)
         g_list_free(i->next);
         i->next = NULL;
     }
+
+    dump_last_search_headers(total);
 }
 
 static void
@@ -514,13 +587,13 @@ static GString *get_code_string(TBStatistics *tbs, int log_flags)
 
 static void do_tb_dump_with_statistics(TBStatistics *tbs, int log_flags)
 {
-    qemu_log("\n------------------------------\n");
+    qemu_log("\n------------------------------\n\n");
     dump_tb_header(tbs);
-    dump_tb_targets(tbs);
 
     GString *code_s = get_code_string(tbs, log_flags);
-    qemu_log("\n%s", code_s->str);
+    qemu_log("%s", code_s->str);
     g_string_free(code_s, true);
+    qemu_log("------------------------------\n");
 }
 
 struct tb_dump_info {
@@ -534,16 +607,17 @@ static void do_dump_tb_info_safe(CPUState *cpu, run_on_cpu_data info)
     struct tb_dump_info *tbdi = (struct tb_dump_info *) info.host_ptr;
 
     if (!last_search) {
-        qemu_printf("no search on record");
+        qemu_log("no search on record\n");
         return;
     }
+
     qemu_log_to_monitor(tbdi->use_monitor);
 
     TBStatistics *tbs = get_tbstats_by_id(tbdi->id);
     if (tbs) {
         do_tb_dump_with_statistics(tbs, tbdi->log_flags);
     } else {
-        qemu_printf("no TB statitics found with id %d", tbdi->id);
+        qemu_log("no TB statitics found with id %d\n", tbdi->id);
     }
 
     qemu_log_to_monitor(false);
@@ -566,9 +640,9 @@ void dump_tb_info(int id, int log_mask, bool use_monitor)
 }
 
 #define MAX_CFG_NUM_NODES 1000
-int cfg_tb_id;
-GHashTable *cfg_nodes;
-uint64_t root_count;
+static int cfg_tb_id;
+static GHashTable *cfg_nodes;
+static uint64_t root_count;
 
 static void fputs_jump(TBStatistics *from, TBStatistics *to, FILE *dot)
 {
@@ -594,6 +668,10 @@ static void fputs_jump(TBStatistics *from, TBStatistics *to, FILE *dot)
 
 static void fputs_tbstats(TBStatistics *tbs, FILE *dot, int log_flags)
 {
+    if (!tbs) {
+        return;
+    }
+
     GString *line = g_string_new(NULL);;
 
     uint32_t color = 0xFF666;
@@ -703,5 +781,5 @@ void dump_tb_cfg(int id, int depth, int log_flags)
         execvp(args[0], args);
     }
 
-    g_string_free(file_name, TRUE);
+    g_string_free(file_name, true);
 }
