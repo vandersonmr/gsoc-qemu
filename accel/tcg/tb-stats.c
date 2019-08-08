@@ -727,10 +727,14 @@ static void fputs_preorder_walk(TBStatistics *tbs, int depth, FILE *dot, int log
         fputs_tbstats(tbs, dot, log_flags);
 
         if (tbs->tb) {
-            TranslationBlock *left_tb =
-                (TranslationBlock *) atomic_read(tbs->tb->jmp_dest);
-            TranslationBlock *right_tb =
-                (TranslationBlock *) atomic_read(tbs->tb->jmp_dest + 1);
+            TranslationBlock *left_tb  = NULL;
+            TranslationBlock *right_tb = NULL;
+            if (tbs->tb->jmp_dest[0]) {
+                left_tb = (TranslationBlock *) atomic_read(tbs->tb->jmp_dest);
+            }
+            if (tbs->tb->jmp_dest[1]) {
+                right_tb = (TranslationBlock *) atomic_read(tbs->tb->jmp_dest + 1);
+            }
 
             if (left_tb) {
                 fputs_preorder_walk(left_tb->tb_stats, depth - 1, dot, log_flags);
@@ -744,13 +748,18 @@ static void fputs_preorder_walk(TBStatistics *tbs, int depth, FILE *dot, int log
     }
 }
 
-void dump_tb_cfg(int id, int depth, int log_flags)
+struct PreorderInfo {
+    TBStatistics *tbs;
+    int depth;
+    int log_flags;
+};
+
+static void fputs_preorder_walk_safe(CPUState *cpu, run_on_cpu_data icmd)
 {
-    cfg_tb_id = 1;
-    root_count = 0;
+    struct PreorderInfo *info = icmd.host_ptr;
 
     GString *file_name = g_string_new(NULL);;
-    g_string_printf(file_name, "/tmp/qemu-cfg-tb-%d-%d.dot", id, depth);
+    g_string_printf(file_name, "/tmp/qemu-cfg-tb-%d-%d.dot", id, info->depth);
     FILE *dot = fopen(file_name->str, "w+");
 
     fputs(
@@ -763,13 +772,8 @@ void dump_tb_cfg(int id, int depth, int log_flags)
             "   edge[fontsize=8 fontname=\"Verdana\"];\n"
          , dot);
 
-    /* do a pre-order walk in the CFG with a limited depth */
-    TBStatistics *root = get_tbstats_by_id(id);
-    if (root) {
-        root_count = root->executions.total;
-    }
     cfg_nodes = g_hash_table_new(NULL, NULL);
-    fputs_preorder_walk(root, depth + 1, dot, log_flags);
+    fputs_preorder_walk(info->tbs, info->depth, dot, info->log_flags);
     g_hash_table_destroy(cfg_nodes);
 
     fputs("}\n\0", dot);
@@ -782,4 +786,24 @@ void dump_tb_cfg(int id, int depth, int log_flags)
     }
 
     g_string_free(file_name, true);
+    g_free(info);
+}
+
+void dump_tb_cfg(int id, int depth, int log_flags)
+{
+    cfg_tb_id = 1;
+    root_count = 0;
+
+    /* do a pre-order walk in the CFG with a limited depth */
+    TBStatistics *root = get_tbstats_by_id(id);
+    if (root) {
+        root_count = root->executions.total;
+    }
+
+    struct PreorderInfo *info = g_new(struct PreorderInfo, 1);
+    info->tbs = root;
+    info->depth = depth + 1;
+    info->log_flags = log_flags;
+    async_safe_run_on_cpu(first_cpu, fputs_preorder_walk_safe,
+            RUN_ON_CPU_HOST_PTR(info));
 }
