@@ -12,6 +12,9 @@ enum TbstatsCmd { START, PAUSE, STOP, FILTER };
 #define tb_stats_enabled(tb, JIT_STATS) \
     (tb && tb->tb_stats && (tb->tb_stats->stats_enabled & JIT_STATS))
 
+#define stat_per_translation(stat, name) \
+      (stat->translations.total ? stat->name / stat->translations.total : 0)
+
 typedef struct TBStatistics TBStatistics;
 
 /*
@@ -33,13 +36,12 @@ struct TBStatistics {
 
     /* Execution stats */
     struct {
-        unsigned long total;
+        unsigned long normal;
         unsigned long atomic;
     } executions;
 
     struct {
         unsigned num_guest_inst;
-        unsigned num_host_inst;
         unsigned num_tcg_ops;
         unsigned num_tcg_ops_opt;
         unsigned spills;
@@ -54,7 +56,6 @@ struct TBStatistics {
 
     struct {
         unsigned long total;
-        unsigned long uncached;
         unsigned long spanning;
     } translations;
 
@@ -80,6 +81,7 @@ void dump_jit_exec_time_info(uint64_t dev_time);
 void dump_jit_profile_info(TCGProfile *s);
 
 void set_tbstats_flags(uint32_t flags);
+void init_tb_stats_htable_if_not(void);
 void clean_tbstats(void);
 
 struct TbstatsCommand {
@@ -123,5 +125,16 @@ void dump_tbs_info(int count, int sort_by, bool use_monitor);
 void dump_tb_info(int id, int log_mask, bool use_monitor);
 
 void dump_tb_cfg(int id, int depth, int log_flags);
+
+/* TBStatistic collection controls */
+
+void enable_collect_tb_stats(void);
+void disable_collect_tb_stats(void);
+void pause_collect_tb_stats(void);
+bool tb_stats_collection_enabled(void);
+bool tb_stats_collection_paused(void);
+
+void set_default_tbstats_flag(uint32_t flag);
+uint32_t get_default_tbstats_flag(void);
 
 #endif

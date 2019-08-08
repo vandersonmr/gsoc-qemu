@@ -48,7 +48,6 @@ struct jit_profile_info {
     unsigned temps_max;
     uint64_t host;
     uint64_t guest;
-    uint64_t host_ins;
     uint64_t search_data;
 
     uint64_t interm_time;
@@ -67,25 +66,22 @@ static void collect_jit_profile_info(void *p, uint32_t hash, void *userp)
 
     jpi->translations += tbs->translations.total;
     jpi->ops += tbs->code.num_tcg_ops;
-    if (tbs->translations.total && tbs->code.num_tcg_ops / tbs->translations.total
-            > jpi->ops_max) {
-        jpi->ops_max = tbs->code.num_tcg_ops / tbs->translations.total;
+    if (stat_per_translation(tbs, code.num_tcg_ops) > jpi->ops_max) {
+        jpi->ops_max = stat_per_translation(tbs, code.num_tcg_ops);
     }
     jpi->del_ops += tbs->code.deleted_ops;
     jpi->temps += tbs->code.temps;
-    if (tbs->translations.total && tbs->code.temps / tbs->translations.total >
-            jpi->temps_max) {
-        jpi->temps_max = tbs->code.temps / tbs->translations.total;
+    if (stat_per_translation(tbs, code.temps) > jpi->temps_max) {
+        jpi->temps_max = stat_per_translation(tbs, code.temps);
     }
     jpi->host += tbs->code.out_len;
     jpi->guest += tbs->code.in_len;
-    jpi->host_ins += tbs->code.num_host_inst;
     jpi->search_data += tbs->code.search_out_len;
 
-    jpi->interm_time += tbs->time.interm / tbs->translations.total;
-    jpi->code_time += tbs->time.code / tbs->translations.total;
-    jpi->opt_time += tbs->time.opt / tbs->translations.total;
-    jpi->la_time += tbs->time.la / tbs->translations.total;
+    jpi->interm_time += stat_per_translation(tbs, time.interm);
+    jpi->code_time += stat_per_translation(tbs, time.code);
+    jpi->opt_time += stat_per_translation(tbs, time.opt);
+    jpi->la_time += stat_per_translation(tbs, time.la);
     jpi->restore_time += tbs->time.restore;
     jpi->restore_count += tbs->time.restore_count;
 }
@@ -127,8 +123,6 @@ void dump_jit_profile_info(TCGProfile *s)
                 jpi->temps / (double) jpi->translations, jpi->temps_max);
         qemu_printf("avg host code/TB    %0.1f\n",
                 jpi->host / (double) jpi->translations);
-        qemu_printf("avg host ins/TB     %0.1f\n",
-                jpi->host_ins / (double) jpi->translations);
         qemu_printf("avg search data/TB  %0.1f\n",
                 jpi->search_data / (double) jpi->translations);
 
@@ -142,8 +136,6 @@ void dump_jit_profile_info(TCGProfile *s)
                 jpi->guest ? (double)tot / jpi->guest : 0);
         qemu_printf("cycles/out byte     %0.1f\n",
                 jpi->host ? (double)tot / jpi->host : 0);
-        qemu_printf("cycles/out inst     %0.1f\n",
-                jpi->host_ins ? (double)tot / jpi->host_ins : 0);
         qemu_printf("cycles/search byte     %0.1f\n",
                 jpi->search_data ? (double)tot / jpi->search_data : 0);
         if (tot == 0) {
@@ -172,9 +164,11 @@ void dump_jit_profile_info(TCGProfile *s)
 
         }
     }
+
+    g_free(jpi);
 }
 
-static void dessaloc_tbstats(void *p, uint32_t hash, void *userp)
+static void free_tbstats(void *p, uint32_t hash, void *userp)
 {
     g_free(p);
 }
@@ -182,7 +176,7 @@ static void dessaloc_tbstats(void *p, uint32_t hash, void *userp)
 void clean_tbstats(void)
 {
     /* remove all tb_stats */
-    qht_iter(&tb_ctx.tb_stats, dessaloc_tbstats, NULL);
+    qht_iter(&tb_ctx.tb_stats, free_tbstats, NULL);
     qht_destroy(&tb_ctx.tb_stats);
 }
 
@@ -199,14 +193,19 @@ void set_tbstats_flags(uint32_t flag)
     qht_iter(&tb_ctx.tb_stats, reset_tbstats_flag, &flag);
 }
 
+void init_tb_stats_htable_if_not(void)
+{
+    if (tb_stats_collection_enabled() && !tb_ctx.tb_stats.map) {
+        qht_init(&tb_ctx.tb_stats, tb_stats_cmp,
+                CODE_GEN_HTABLE_SIZE, QHT_MODE_AUTO_RESIZE);
+    }
+}
+
 void do_hmp_tbstats_safe(CPUState *cpu, run_on_cpu_data icmd)
 {
     struct TbstatsCommand *cmdinfo = icmd.host_ptr;
     int cmd = cmdinfo->cmd;
     uint32_t level = cmdinfo->level;
-
-    /* for safe, always pause TB generation while running this commands */
-    mmap_lock();
 
     switch (cmd) {
     case START:
@@ -233,9 +232,9 @@ void do_hmp_tbstats_safe(CPUState *cpu, run_on_cpu_data icmd)
 
         /* Continue to create TBStatistic structures but stop collecting statistics */
         pause_collect_tb_stats();
-        tb_flush(cpu);
         set_default_tbstats_flag(TB_NOTHING);
         set_tbstats_flags(TB_PAUSED);
+        tb_flush(cpu);
         break;
     case STOP:
         if (!tb_stats_collection_enabled()) {
@@ -245,8 +244,8 @@ void do_hmp_tbstats_safe(CPUState *cpu, run_on_cpu_data icmd)
 
         /* Dissalloc all TBStatistics structures and stop creating new ones */
         disable_collect_tb_stats();
-        tb_flush(cpu);
         clean_tbstats();
+        tb_flush(cpu);
         break;
     case FILTER:
         if (!tb_stats_collection_enabled()) {
@@ -258,7 +257,6 @@ void do_hmp_tbstats_safe(CPUState *cpu, run_on_cpu_data icmd)
             return;
         }
 
-        tb_flush(cpu);
         set_default_tbstats_flag(TB_NOTHING);
 
         /* Set all tbstats as paused, then return only the ones from last_search */
@@ -270,12 +268,14 @@ void do_hmp_tbstats_safe(CPUState *cpu, run_on_cpu_data icmd)
             tbs->stats_enabled = level;
         }
 
+        tb_flush(cpu);
+
         break;
     default: /* INVALID */
+        g_assert_not_reached();
         break;
     }
 
-    mmap_unlock();
     g_free(cmdinfo);
 }
 
@@ -320,7 +320,7 @@ static void dump_tb_targets(TBStatistics *tbs)
             qemu_log("\t| targets: 0x"TB_PAGE_ADDR_FMT" (id:%d)\n",
                     pc1, tb_dst1 ? tbstats_pc1->display_id : -1);
         } else if (pc1 && pc2) {
-            qemu_log("\t| targets: 0x"TB_PAGE_ADDR_FMT" (id:%d),"
+            qemu_log("\t| targets: 0x"TB_PAGE_ADDR_FMT" (id:%d), "
                      "0x"TB_PAGE_ADDR_FMT" (id:%d)\n",
                     pc1, tb_dst1 ? tbstats_pc1->display_id : -1,
                     pc2, tb_dst2 ? tbstats_pc2->display_id : -1);
@@ -332,27 +332,23 @@ static void dump_tb_targets(TBStatistics *tbs)
 
 static void dump_tb_header(TBStatistics *tbs)
 {
-    unsigned g = tbs->translations.total ?
-        tbs->code.num_guest_inst / tbs->translations.total : 0;
-    unsigned ops = tbs->translations.total ?
-        tbs->code.num_tcg_ops / tbs->translations.total : 0;
-    unsigned ops_opt = tbs->translations.total ?
-        tbs->code.num_tcg_ops_opt / tbs->translations.total : 0;
-    unsigned h = tbs->translations.total ?
-        tbs->code.num_host_inst / tbs->translations.total : 0;
-    unsigned spills = tbs->translations.total ?
-        tbs->code.spills / tbs->translations.total : 0;
+    unsigned g = stat_per_translation(tbs, code.num_guest_inst);
+    unsigned ops = stat_per_translation(tbs, code.num_tcg_ops);
+    unsigned ops_opt = stat_per_translation(tbs, code.num_tcg_ops_opt);
+    unsigned spills = stat_per_translation(tbs, code.spills);
+    unsigned h = stat_per_translation(tbs, code.out_len);
 
     float guest_host_prop = g ? ((float) h / g) : 0;
 
     qemu_log("TB id:%d | phys:0x"TB_PAGE_ADDR_FMT" virt:0x"TARGET_FMT_lx
-             " flags:%#08x\n\t| trans:%lu exec:%lu ints: g:%u op:%u op_opt:%u h:%u h/g:%.2f spills:%d"
+             " flags:%#08x\n\t| trans:%lu exec:%lu/%lu ints: g:%u op:%u op_opt:%u spills:%d"
+             "\n\t| h/g (host bytes / guest insts): %f"
              "\n\t| time to gen at 2.4GHz => code:%0.2lf(ns) IR:%0.2lf(ns)\n",
              tbs->display_id,
              tbs->phys_pc, tbs->pc, tbs->flags,
-             tbs->translations.total,
-             tbs->executions.total, g, ops, ops_opt, h, guest_host_prop,
-             spills, tbs->time.code / 2.4, tbs->time.interm / 2.4);
+             tbs->translations.total, tbs->executions.normal,
+             tbs->executions.atomic, g, ops, ops_opt, spills, guest_host_prop,
+             tbs->time.code / 2.4, tbs->time.interm / 2.4);
     dump_tb_targets(tbs);
     qemu_log("\n");
 }
@@ -367,11 +363,11 @@ inverse_sort_tbs(gconstpointer p1, gconstpointer p2, gpointer psort_by)
     unsigned long c2 = 0;
 
     if (likely(sort_by == SORT_BY_SPILLS)) {
-        c1 = tbs1->code.spills;
-        c2 = tbs2->code.spills;
+        c1 = stat_per_translation(tbs1, code.spills);
+        c2 = stat_per_translation(tbs2, code.spills);
     } else if (likely(sort_by == SORT_BY_HOTNESS)) {
-        c1 = tbs1->executions.total;
-        c2 = tbs2->executions.total;
+        c1 = stat_per_translation(tbs1, executions.normal);
+        c2 = stat_per_translation(tbs2, executions.normal);
     } else if (likely(sort_by == SORT_BY_HG)) {
         if (tbs1->code.num_guest_inst == 0) {
             return -1;
@@ -380,8 +376,10 @@ inverse_sort_tbs(gconstpointer p1, gconstpointer p2, gpointer psort_by)
             return 1;
         }
 
-        float a = (float) tbs1->code.num_host_inst / tbs1->code.num_guest_inst;
-        float b = (float) tbs2->code.num_host_inst / tbs2->code.num_guest_inst;
+        float a =
+            (float) stat_per_translation(tbs1, code.out_len) / tbs1->code.num_guest_inst;
+        float b =
+            (float) stat_per_translation(tbs2, code.out_len) / tbs2->code.num_guest_inst;
         c1 = a <= b ? 0 : 1;
         c2 = a <= b ? 1 : 0;
     }
@@ -427,18 +425,17 @@ static void do_dump_coverset_info(int percentage)
     /* Compute total execution count for all tbs */
     for (i = last_search; i; i = i->next) {
         TBStatistics *tbs = (TBStatistics *) i->data;
-        total_exec_count += tbs->executions.total * tbs->code.num_guest_inst;
+        total_exec_count += tbs->executions.normal * tbs->code.num_guest_inst;
     }
 
     for (i = last_search; i; i = i->next) {
         TBStatistics *tbs = (TBStatistics *) i->data;
-        covered_exec_count += tbs->executions.total * tbs->code.num_guest_inst;
+        covered_exec_count += tbs->executions.normal * tbs->code.num_guest_inst;
         tbs->display_id = id++;
         coverset_size++;
 
         /* Iterate and display tbs until reach the percentage count cover */
-        if (((double) covered_exec_count / total_exec_count) >
-                ((double) percentage / 100)) {
+        if ((covered_exec_count * 100) / total_exec_count > percentage) {
             break;
         }
     }
@@ -572,6 +569,7 @@ static GString *get_code_string(TBStatistics *tbs, int log_flags)
          * memory.
          */
         fprintf(stderr, "%s: dbg failed!\n", __func__);
+        qemu_log("\ncould not gen code for this TB\n");
         assert_no_pages_locked();
     }
 
@@ -639,6 +637,7 @@ void dump_tb_info(int id, int log_mask, bool use_monitor)
     /* tbdi free'd by do_dump_tb_info_safe */
 }
 
+/* TB CFG xdot/dot dump implementation */
 #define MAX_CFG_NUM_NODES 1000
 static int cfg_tb_id;
 static GHashTable *cfg_nodes;
@@ -675,7 +674,7 @@ static void fputs_tbstats(TBStatistics *tbs, FILE *dot, int log_flags)
     GString *line = g_string_new(NULL);;
 
     uint32_t color = 0xFF666;
-    uint64_t count = tbs->executions.total;
+    uint64_t count = tbs->executions.normal;
     if (count > 1.6 * root_count) {
         color = 0xFF000;
     } else if (count > 1.2 * root_count) {
@@ -704,7 +703,7 @@ static void fputs_tbstats(TBStatistics *tbs, FILE *dot, int log_flags)
             "exec count:\t%lu\\l"
             "\\l %s\"];\n",
             cfg_tb_id, color, cfg_tb_id, tbs->pc,
-            tbs->executions.total, code_s->str);
+            tbs->executions.normal, code_s->str);
 
     fputs(line->str, dot);
 
@@ -785,6 +784,8 @@ static void fputs_preorder_walk_safe(CPUState *cpu, run_on_cpu_data icmd)
         execvp(args[0], args);
     }
 
+    qemu_log("CFG dumped: %s\n", file_name->str);
+
     g_string_free(file_name, true);
     g_free(info);
 }
@@ -797,7 +798,7 @@ void dump_tb_cfg(int id, int depth, int log_flags)
     /* do a pre-order walk in the CFG with a limited depth */
     TBStatistics *root = get_tbstats_by_id(id);
     if (root) {
-        root_count = root->executions.total;
+        root_count = root->executions.normal;
     }
 
     struct PreorderInfo *info = g_new(struct PreorderInfo, 1);
@@ -806,4 +807,42 @@ void dump_tb_cfg(int id, int depth, int log_flags)
     info->log_flags = log_flags;
     async_safe_run_on_cpu(first_cpu, fputs_preorder_walk_safe,
             RUN_ON_CPU_HOST_PTR(info));
+}
+
+/* TBStatistic collection controls */
+
+void enable_collect_tb_stats(void)
+{
+    init_tb_stats_htable_if_not();
+    tcg_collect_tb_stats = TB_STATS_RUNNING;
+}
+
+void disable_collect_tb_stats(void)
+{
+    tcg_collect_tb_stats = TB_STATS_PAUSED;
+}
+
+void pause_collect_tb_stats(void)
+{
+    tcg_collect_tb_stats = TB_STATS_STOPPED;
+}
+
+bool tb_stats_collection_enabled(void)
+{
+    return tcg_collect_tb_stats == TB_STATS_RUNNING;
+}
+
+bool tb_stats_collection_paused(void)
+{
+    return tcg_collect_tb_stats == TB_STATS_PAUSED;
+}
+
+void set_default_tbstats_flag(uint32_t flag)
+{
+    default_tbstats_flag = flag;
+}
+
+uint32_t get_default_tbstats_flag(void)
+{
+    return default_tbstats_flag;
 }

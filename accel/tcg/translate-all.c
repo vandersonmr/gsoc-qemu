@@ -1122,7 +1122,7 @@ static inline void code_gen_alloc(size_t tb_size)
 }
 
 /*
- * This is the more or less the same compare, but the data persists
+ * This is the more or less the same compare as tb_cmp(), but the data persists
  * over tb_flush. We also aggregate the various variations of cflags
  * under one record and ignore the details of page overlap (although
  * we can count it).
@@ -1157,9 +1157,7 @@ static void tb_htable_init(void)
     unsigned int mode = QHT_MODE_AUTO_RESIZE;
 
     qht_init(&tb_ctx.htable, tb_cmp, CODE_GEN_HTABLE_SIZE, mode);
-    if (tb_stats_collection_enabled()) {
-        qht_init(&tb_ctx.tb_stats, tb_stats_cmp, CODE_GEN_HTABLE_SIZE, mode);
-    }
+    init_tb_stats_htable_if_not();
 }
 
 /* Must be called before using the QEMU cpus. 'tb_size' is the size
@@ -1886,14 +1884,6 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
         atomic_add(&tb->tb_stats->code.in_len, tb->size);
         atomic_add(&tb->tb_stats->code.out_len, gen_code_size);
         atomic_add(&tb->tb_stats->code.search_out_len, search_size);
-
-        size_t code_size = gen_code_size;
-        if (tcg_ctx->data_gen_ptr) {
-            code_size = tcg_ctx->data_gen_ptr - tb->tc.ptr;
-        }
-
-        atomic_add(&tb->tb_stats->code.num_host_inst,
-                    get_num_insts(tb->tc.ptr, code_size));
     }
 
 

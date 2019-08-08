@@ -35,6 +35,9 @@ int32_t max_num_hot_tbs_to_dump;
 static bool to_monitor;
 bool to_string;
 
+int tcg_collect_tb_stats;
+uint32_t default_tbstats_flag;
+
 GString *string;
 
 int qemu_vlog(const char *fmt, va_list va)
@@ -184,7 +187,6 @@ bool qemu_log_in_addr_range(uint64_t addr)
         return true;
     }
 }
-
 
 void qemu_set_dfilter_ranges(const char *filter_spec, Error **errp)
 {
@@ -352,20 +354,20 @@ int qemu_str_to_log_mask(const char *str)
                     }
                 }
                 if (g_str_equal(s, "jit") == 0) {
-                    set_default_tbstats_flag(TB_JIT_STATS);
+                    default_tbstats_flag = TB_JIT_STATS;
                 } else if (g_str_equal(s, "exec") == 0) {
-                    set_default_tbstats_flag(TB_EXEC_STATS);
+                    default_tbstats_flag = TB_EXEC_STATS;
                 } else if (g_str_equal(s, "time") == 0) {
-                    set_default_tbstats_flag(TB_EXEC_STATS);
+                    default_tbstats_flag = TB_EXEC_STATS;
                 } else {
-                    set_default_tbstats_flag(TB_JIT_STATS | TB_EXEC_STATS | TB_JIT_TIME);
+                    default_tbstats_flag = TB_JIT_STATS | TB_EXEC_STATS | TB_JIT_TIME;
                 }
             } else {
-                set_default_tbstats_flag(TB_JIT_STATS | TB_EXEC_STATS | TB_JIT_TIME);
+                default_tbstats_flag = TB_JIT_STATS | TB_EXEC_STATS | TB_JIT_TIME;
             }
 
             mask |= CPU_LOG_TB_STATS;
-            enable_collect_tb_stats();
+            tcg_collect_tb_stats = TB_STATS_RUNNING;
         } else {
             for (item = qemu_log_items; item->mask != 0; item++) {
                 if (g_str_equal(*tmp, item->name)) {
@@ -399,41 +401,3 @@ void qemu_print_log_usage(FILE *f)
 #endif
 }
 
-int tcg_collect_tb_stats;
-
-void enable_collect_tb_stats(void)
-{
-    tcg_collect_tb_stats = 1;
-}
-
-void disable_collect_tb_stats(void)
-{
-    tcg_collect_tb_stats = 0;
-}
-
-void pause_collect_tb_stats(void)
-{
-    tcg_collect_tb_stats = 2;
-}
-
-bool tb_stats_collection_enabled(void)
-{
-    return tcg_collect_tb_stats;
-}
-
-bool tb_stats_collection_paused(void)
-{
-    return tcg_collect_tb_stats == 2;
-}
-
-uint32_t default_tbstats_flag;
-
-void set_default_tbstats_flag(uint32_t flag)
-{
-    default_tbstats_flag = flag;
-}
-
-uint32_t get_default_tbstats_flag(void)
-{
-    return default_tbstats_flag;
-}
