@@ -1704,6 +1704,7 @@ static TBStatistics *tb_get_stats(tb_page_addr_t phys_pc, target_ulong pc,
     new_stats->cs_base = cs_base;
     new_stats->flags = flags;
     new_stats->tb = current_tb;
+    new_stats->translations.total = 1;
 
     qht_insert(&tb_ctx.tb_stats, new_stats, hash, &existing_stats);
 
@@ -1801,7 +1802,8 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
             atomic_inc(&tb->tb_stats->translations.total);
         }
 
-        if (tb_stats_enabled(tb, TB_JIT_TIME)) {
+        if (flag & TB_JIT_TIME) {
+            tb->tb_stats->stats_enabled |= TB_JIT_TIME;
             ti = profile_getclock();
         }
 

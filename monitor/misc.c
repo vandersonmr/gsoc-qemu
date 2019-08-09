@@ -484,11 +484,11 @@ static void hmp_tbstats(Monitor *mon, const QDict *qdict)
     char *slevel = (char *) qdict_get_try_str(qdict, "level");
     uint32_t level = TB_EXEC_STATS | TB_JIT_STATS | TB_JIT_TIME;
     if (slevel) {
-        if (strcmp(slevel, "jit_stats") == 0) {
+        if (strcmp(slevel, "jit") == 0) {
             level = TB_JIT_STATS;
-        } else if (strcmp(slevel, "exec_stats") == 0) {
+        } else if (strcmp(slevel, "exec") == 0) {
             level = TB_EXEC_STATS;
-        } else if (strcmp(slevel, "jit_time") == 0) {
+        } else if (strcmp(slevel, "time") == 0) {
             level = TB_JIT_TIME;
         }
     }
@@ -517,7 +517,7 @@ static void hmp_info_tbs(Monitor *mon, const QDict *qdict)
     n = qdict_get_try_int(qdict, "number", 10);
     s = qdict_get_try_str(qdict, "sortedby");
 
-    int sortedby = 0;
+    int sortedby = SORT_BY_HOTNESS;
     if (s == NULL || strcmp(s, "hotness") == 0) {
         sortedby = SORT_BY_HOTNESS;
     } else if (strcmp(s, "hg") == 0) {

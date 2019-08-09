@@ -9,8 +9,11 @@
 enum SortBy { SORT_BY_HOTNESS, SORT_BY_HG /* Host/Guest */, SORT_BY_SPILLS };
 enum TbstatsCmd { START, PAUSE, STOP, FILTER };
 
+#define tbs_stats_enabled(tbs, JIT_STATS) \
+    (tbs && (tbs->stats_enabled & JIT_STATS))
+
 #define tb_stats_enabled(tb, JIT_STATS) \
-    (tb && tb->tb_stats && (tb->tb_stats->stats_enabled & JIT_STATS))
+    (tb && tb->tb_stats && tbs_stats_enabled(tb->tb_stats, JIT_STATS))
 
 #define stat_per_translation(stat, name) \
       (stat->translations.total ? stat->name / stat->translations.total : 0)

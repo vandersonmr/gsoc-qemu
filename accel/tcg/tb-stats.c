@@ -341,14 +341,23 @@ static void dump_tb_header(TBStatistics *tbs)
     float guest_host_prop = g ? ((float) h / g) : 0;
 
     qemu_log("TB id:%d | phys:0x"TB_PAGE_ADDR_FMT" virt:0x"TARGET_FMT_lx
-             " flags:%#08x\n\t| trans:%lu exec:%lu/%lu ints: g:%u op:%u op_opt:%u spills:%d"
-             "\n\t| h/g (host bytes / guest insts): %f"
-             "\n\t| time to gen at 2.4GHz => code:%0.2lf(ns) IR:%0.2lf(ns)\n",
-             tbs->display_id,
-             tbs->phys_pc, tbs->pc, tbs->flags,
-             tbs->translations.total, tbs->executions.normal,
-             tbs->executions.atomic, g, ops, ops_opt, spills, guest_host_prop,
+             " flags:%#08x\n", tbs->display_id, tbs->phys_pc, tbs->pc, tbs->flags);
+
+    if (tbs_stats_enabled(tbs, TB_EXEC_STATS)) {
+        qemu_log("\t| exec:%lu/%lu\n", tbs->executions.normal, tbs->executions.atomic);
+    }
+
+    if (tbs_stats_enabled(tbs, TB_JIT_STATS)) {
+        qemu_log("\t| trans:%lu ints: g:%u op:%u op_opt:%u spills:%d"
+             "\n\t| h/g (host bytes / guest insts): %f\n",
+             tbs->translations.total, g, ops, ops_opt, spills, guest_host_prop);
+    }
+
+    if (tbs_stats_enabled(tbs, TB_JIT_TIME)) {
+        qemu_log("\t| time to gen at 2.4GHz => code:%0.2lf(ns) IR:%0.2lf(ns)\n",
              tbs->time.code / 2.4, tbs->time.interm / 2.4);
+    }
+
     dump_tb_targets(tbs);
     qemu_log("\n");
 }

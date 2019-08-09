@@ -312,8 +312,9 @@ const QEMULogItem qemu_log_items[] = {
     { CPU_LOG_TB_NOCHAIN, "nochain",
       "do not chain compiled TBs so that \"exec\" and \"cpu\" show\n"
       "complete traces" },
-    { CPU_LOG_TB_STATS, "tb_stats[:limit:(all,jit,exec)]",
-      "show TBs statistics (until given a limit) ordered by their hotness.\n" },
+    { CPU_LOG_TB_STATS, "tb_stats[[,level=(+all+jit+exec+time)][,dump_limit=<number>]]",
+      "enable collection of TBs statistics"
+      "(and dump until given a limit if in user mode).\n" },
     { 0, NULL, NULL },
 };
 
@@ -336,38 +337,34 @@ int qemu_str_to_log_mask(const char *str)
             mask |= LOG_TRACE;
 #endif
         } else if (g_str_has_prefix(*tmp, "tb_stats")) {
-            if (g_str_has_prefix(*tmp, "tb_stats:") && (*tmp)[9] != '\0') {
+            mask |= CPU_LOG_TB_STATS;
+            default_tbstats_flag = TB_JIT_STATS | TB_EXEC_STATS | TB_JIT_TIME;
+            tcg_collect_tb_stats = TB_STATS_RUNNING;
+        } else if (tcg_collect_tb_stats == TB_STATS_RUNNING &&
+                g_str_has_prefix(*tmp, "dump_limit=")) {
 
-                if (!g_ascii_isdigit(*((*tmp) + 9))) {
-                    fprintf(stderr,
-                            "should be a number follow by [all|jit|exec], as tb_stats:10:all\n");
+            max_num_hot_tbs_to_dump = atoi((*tmp) + 11);
+        } else if (tcg_collect_tb_stats == TB_STATS_RUNNING &&
+                g_str_has_prefix(*tmp, "level=")) {
+
+            default_tbstats_flag = 0;
+            char **level_parts = g_strsplit(*tmp + 6, "+", 0);
+            char **level_tmp;
+            for (level_tmp = level_parts; level_tmp && *level_tmp; level_tmp++) {
+                if (g_str_equal(*level_tmp, "jit")) {
+                    default_tbstats_flag |= TB_JIT_STATS;
+                } else if (g_str_equal(*level_tmp, "exec")) {
+                    default_tbstats_flag |= TB_EXEC_STATS;
+                } else if (g_str_equal(*level_tmp, "time")) {
+                    default_tbstats_flag |= TB_JIT_TIME;
+                } else if (g_str_equal(*level_tmp, "all")) {
+                    default_tbstats_flag |= TB_JIT_STATS | TB_EXEC_STATS | TB_JIT_TIME;
+                } else {
+                    fprintf(stderr, "no option level=%s, valid options are:"
+                            "all, jit, exec or/and time\n", *level_tmp);
                     exit(1);
                 }
-                /* get limit */
-                max_num_hot_tbs_to_dump = atoi((*tmp) + 9);
-
-                /* get profilling level */
-                char *s = (*tmp) + 9;
-                while (*s != '\0') {
-                    if (*s++ == ':') {
-                        break;
-                    }
-                }
-                if (g_str_equal(s, "jit") == 0) {
-                    default_tbstats_flag = TB_JIT_STATS;
-                } else if (g_str_equal(s, "exec") == 0) {
-                    default_tbstats_flag = TB_EXEC_STATS;
-                } else if (g_str_equal(s, "time") == 0) {
-                    default_tbstats_flag = TB_EXEC_STATS;
-                } else {
-                    default_tbstats_flag = TB_JIT_STATS | TB_EXEC_STATS | TB_JIT_TIME;
-                }
-            } else {
-                default_tbstats_flag = TB_JIT_STATS | TB_EXEC_STATS | TB_JIT_TIME;
             }
-
-            mask |= CPU_LOG_TB_STATS;
-            tcg_collect_tb_stats = TB_STATS_RUNNING;
         } else {
             for (item = qemu_log_items; item->mask != 0; item++) {
                 if (g_str_equal(*tmp, item->name)) {
