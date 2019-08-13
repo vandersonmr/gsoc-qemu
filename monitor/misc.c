@@ -514,19 +514,22 @@ static void hmp_info_tbs(Monitor *mon, const QDict *qdict)
         return;
     }
 
-    n = qdict_get_try_int(qdict, "number", 10);
-    s = qdict_get_try_str(qdict, "sortedby");
+    number_int = qdict_get_try_int(qdict, "number", 10);
+    sortedby_str = qdict_get_try_str(qdict, "sortedby");
 
     int sortedby = SORT_BY_HOTNESS;
-    if (s == NULL || strcmp(s, "hotness") == 0) {
+    if (s == NULL || strcmp(sortedby_str, "hotness") == 0) {
         sortedby = SORT_BY_HOTNESS;
-    } else if (strcmp(s, "hg") == 0) {
+    } else if (strcmp(sortedby_str, "hg") == 0) {
         sortedby = SORT_BY_HG;
-    } else if (strcmp(s, "spills") == 0) {
+    } else if (strcmp(sortedby_str, "spills") == 0) {
         sortedby = SORT_BY_SPILLS;
+    } else {
+        error_report("valid sort options are: hotness hg spills");
+        return;
     }
 
-    dump_tbs_info(n, sortedby, true);
+    dump_tbs_info(number_int, sortedby, true);
 }
 
 static void hmp_info_tb(Monitor *mon, const QDict *qdict)
@@ -543,7 +546,7 @@ static void hmp_info_tb(Monitor *mon, const QDict *qdict)
     mask = flags ? qemu_str_to_log_mask(flags) : CPU_LOG_TB_IN_ASM;
 
     if (!mask) {
-        help_cmd(mon, "log");
+        error_report("Unable to parse log flags, see 'help log'");
         return;
     }
 
@@ -565,7 +568,7 @@ static void hmp_info_cfg(Monitor *mon, const QDict *qdict)
     mask = flags ? qemu_str_to_log_mask(flags) : CPU_LOG_TB_IN_ASM;
 
     if (!mask) {
-        help_cmd(mon, "log");
+        error_report("Unable to parse log flags, see 'help log'");
         return;
     }
 
@@ -584,14 +587,14 @@ static void hmp_info_coverset(Monitor *mon, const QDict *qdict)
         return;
     }
 
-    n = qdict_get_try_int(qdict, "number", 90);
+    coverage = qdict_get_try_int(qdict, "coverage", 90);
 
-    if (n < 0 || n > 100) {
+    if (coverage < 0 || coverage > 100) {
         error_report("Coverset percentage should be between 0 and 100");
         return;
     }
 
-    dump_coverset_info(n, true);
+    dump_coverset_info(coverage, true);
 }
 
 static void hmp_info_jit(Monitor *mon, const QDict *qdict)

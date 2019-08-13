@@ -294,14 +294,15 @@ ETEXI
         .args_type  = "number:i?,sortedby:s?",
         .params     = "[number sortedby]",
         .help       = "show a [number] translated blocks sorted by [sortedby]"
-                      "sortedby opts: hotness hg",
+                      "sortedby opts: hotness hg spills",
         .cmd        = hmp_info_tbs,
     },
     {
         .name       = "tb",
         .args_type  = "id:i,flags:s?",
         .params     = "id [log1[,...] flags]",
-        .help       = "show information about one translated block by id",
+        .help       = "show information about one translated block by id."
+                      "a dump flag can be used to set dump code level: out_asm in_asm op",
         .cmd        = hmp_info_tb,
     },
     {
@@ -313,10 +314,10 @@ ETEXI
     },
     {
         .name       = "coverset",
-        .args_type  = "number:i?",
-        .params     = "[number]",
+        .args_type  = "coverage:i?",
+        .params     = "[coverage]",
         .help       = "show hottest translated blocks neccesary to cover"
-                      "[number]% of the execution count",
+                      "[coverage]% of the execution count",
         .cmd        = hmp_info_coverset,
     },
 #endif
